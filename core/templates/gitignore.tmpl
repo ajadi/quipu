@@ -1,0 +1,13 @@
+# gitignore.tmpl — base .gitignore template for Quipu projects.
+# Copy or append to your project's .gitignore as needed.
+
+# --- quipu: project-local DB directory ---
+# .quipu/ holds the project-scoped Quipu SQLite database.
+# Never commit this directory; it is machine-local and may contain
+# large binary blobs (embeddings).
+.quipu/
+
+# --- quipu: sqlite database files ---
+*.db
+*.sqlite
+*.sqlite3

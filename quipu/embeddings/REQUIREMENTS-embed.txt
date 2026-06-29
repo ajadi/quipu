@@ -1,0 +1,8 @@
+# Runtime dependencies for the quipu.embeddings track (E2).
+# Pending root pyproject.toml ownership resolution by PM/user before installing.
+onnxruntime~=1.20
+tokenizers~=0.21
+numpy~=2.1
+
+# Dev / test
+pytest

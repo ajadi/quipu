@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="328" viewBox="0 0 780 328" font-family="SFMono-Regular,Consolas,Menlo,monospace" role="img">
+<title>Quipu — AI agents forget between sessions; Quipu remembers</title>
+<desc>Animated terminal demo: an AI session without Quipu loses context; with Quipu it recalls the SQLite decision instantly.</desc>
+<style>@keyframes sh{from{opacity:0;transform:translateX(-4px)}to{opacity:1;transform:translateX(0)}} .ln{white-space:pre}</style>
+<rect width="780" height="328" rx="11" fill="#0D1117"/>
+<rect width="780" height="36" rx="11" fill="#12192B"/><rect y="24" width="780" height="12" fill="#12192B"/>
+<circle cx="22" cy="18" r="6.5" fill="#FF5F56"/><circle cx="44" cy="18" r="6.5" fill="#FFBD2E"/><circle cx="66" cy="18" r="6.5" fill="#27C93F"/>
+<text x="390" y="23" fill="#8B949E" font-size="12.5" text-anchor="middle">quipu — memory for any AI agent</text>
+<style>.l0{animation:sh .15s ease 0.3s both}.l1{animation:sh .15s ease 0.9s both}.l2{animation:sh .15s ease 1.6s both}.l3{animation:sh .15s ease 2.5s both}.l4{animation:sh .15s ease 3.0s both}.l5{animation:sh .15s ease 3.5s both}.l6{animation:sh .15s ease 3.8s both}.l7{animation:sh .15s ease 4.1s both}.l8{animation:sh .15s ease 4.5s both}</style>
+<text x="22" y="76" fill="#636B7A" font-size="14" class="ln l0"># fresh Claude session — yesterday&#x27;s context is gone</text>
+<text x="22" y="104" fill="#C9D1D9" font-size="15" class="ln l1">you ›  what did we decide about the DB, and why?</text>
+<text x="22" y="132" fill="#F85149" font-size="15" class="ln l2">claude ›  I don&#x27;t have any record of that decision…</text>
+<text x="22" y="160" fill="#6366F1" font-size="13" class="ln l3">────────────────  + quipu memory  ────────────────</text>
+<text x="22" y="188" fill="#C9D1D9" font-size="15" class="ln l4">you ›  what did we decide about the DB?</text>
+<text x="22" y="216" fill="#A5B4FC" font-size="15" class="ln l5">claude ›  You chose SQLite over DuckDB — single-file,</text>
+<text x="22" y="244" fill="#A5B4FC" font-size="15" class="ln l6">          zero-config; FTS5 gives BM25 in-engine.</text>
+<path class="l7" d="M 23,266 C 27,263 30,265 31,268 C 32,271 28,273 27,271 C 26,269 27,267 28,268" fill="none" stroke="#F59E0B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="37" y="272" fill="#C7D2FE" font-size="13" class="ln l7"> recalled from quipu · R3 · 12 ms · 0 cloud</text>
+<text x="22" y="300" fill="#F59E0B" font-size="15" font-weight="700" class="ln l8">Every decision, knotted into one local cord. Local. One file. No cloud.</text>
+</svg>

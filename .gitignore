@@ -1,0 +1,61 @@
+# --- common ---
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+credentials.json
+secrets/
+*secret*
+# Exception: legitimate source modules whose names contain "secret"
+# (e.g. the capture secret-scanner). Credential files stay ignored above.
+!quipu/capture/secrets.py
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+hub/audit.log
+hub/.venv/
+hub/hub.env
+.quipu/
+node_modules/
+__pycache__/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+*.log
+coverage/
+.coverage
+.pytest_cache/
+.DS_Store
+Thumbs.db
+
+# --- forge: always local, never commit ---
+.claude/settings.local.json
+.claude/locks.json
+.claude/metrics.log
+.claude/logs/
+.claude/backup-*/
+.claude/CLAUDE.md.merge-proposal.md
+.claude/.current-agent
+.claude/.precompact-ts
+.claude/.rehydrated-ts
+.claude/.oq-state
+.claude/dream-state.json
+.claude/.grok-broke
+.claude/.grok-last
+.claude/.autopilot
+CLAUDE.local.md
+
+# >>> framework-public-ignore
+# Toggled by scripts/switch-repo-access.sh — do not edit by hand
+# .claude/
+# CLAUDE.md
+# memory/
+# tasks/
+# <<< framework-public-ignore
+spikes/s1-encrypted-sync/oplog.bin

@@ -1,0 +1,60 @@
+# hub/deploy/quipu-hub.service.example
+# Systemd unit for Quipu Hub (bare-metal / non-container deployment).
+#
+# Installation (one-time, requires sudo only for this step):
+#   sudo cp hub/deploy/quipu-hub.service.example /etc/systemd/system/quipu-hub.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now quipu-hub
+#
+# The service runs as an unprivileged dedicated user (quipu-hub) and does NOT
+# require root at runtime.  Only the one-time installation of the unit file
+# and the initial useradd/mkdir/chown steps below need elevated privileges.
+#
+# Pre-requisites (run once as root/sudo before enabling the unit):
+#   useradd --system --no-create-home --shell /usr/sbin/nologin quipu-hub
+#   mkdir -p /var/lib/quipu-hub /var/log/quipu-hub
+#   chown quipu-hub: /var/lib/quipu-hub /var/log/quipu-hub
+#   install -m 600 -o root -g root /dev/null /etc/quipu-hub.env
+#   echo 'HUB_TOKENS=<your-token>' >> /etc/quipu-hub.env
+#
+# The service binds localhost:8000 and expects a TLS-terminating reverse proxy
+# (nginx, Caddy, etc.) in front of it.  It does not need to bind port 443 and
+# must not run as root to do so.
+
+[Unit]
+Description=Quipu Hub — zero-knowledge oplog relay
+After=network.target
+Documentation=file:/opt/quipu-hub/hub/deploy/RUNBOOK.md
+
+[Service]
+Type=simple
+User=quipu-hub
+Group=quipu-hub
+
+WorkingDirectory=/opt/quipu-hub
+
+# Token and runtime config loaded from a root-owned, mode-600 file.
+# Never bake credentials in this unit file.
+EnvironmentFile=/etc/quipu-hub.env
+
+# Override DB/audit paths to use dedicated directories.
+Environment=HUB_DB_PATH=/var/lib/quipu-hub/hub.db
+Environment=HUB_AUDIT_PATH=/var/log/quipu-hub/audit.log
+
+# --workers 1 is intentional: single-process SQLite WAL deployment (V1).
+ExecStart=/opt/quipu-hub/hub/.venv/bin/uvicorn hub.main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 1
+
+Restart=on-failure
+RestartSec=5
+
+# Hardening — reduce attack surface.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/quipu-hub /var/log/quipu-hub
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+# Optional vec dependencies — install to enable sqlite-vec acceleration.
+# The system runs fully without these; absence triggers a one-time warning
+# and falls back to pure-Python cosine (tier_r1).
+#
+# Usage:
+#   pip install -r REQUIREMENTS-vec.txt
+#
+# See: quipu/vec/_gate.py, docs/vector-index.md, ADR-001
+
+sqlite-vec>=0.1.6

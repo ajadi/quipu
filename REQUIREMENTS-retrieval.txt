@@ -1,0 +1,6 @@
+# Requirements for quipu/retrieval and quipu/ranking tracks (TASK-003).
+# BM25 uses FTS5 from stdlib sqlite3 — no additional runtime dep.
+# numpy is already available via quipu.embeddings.
+
+# Test runner
+pytest
