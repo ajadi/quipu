@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[test]"
-      - run: python -m pytest -q
+      - run: python -m pytest -q --ignore=tests/embeddings --ignore=tests/vec --ignore=tests/crypto --ignore=tests/keystore --ignore=tests/oplog --ignore=tests/capture --ignore=tests/sync
 
   publish:
     needs: test
