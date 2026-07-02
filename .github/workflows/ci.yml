@@ -26,4 +26,4 @@ jobs:
           pip install -e ".[test]"
 
       - name: Run tests
-        run: python -m pytest -q --ignore=tests/embeddings --ignore=tests/vec --ignore=tests/crypto --ignore=tests/keystore --ignore=tests/oplog --ignore=tests/capture --ignore=tests/sync
+        run: python -m pytest -q --ignore=tests/embeddings --ignore=tests/vec --ignore=tests/crypto --ignore=tests/keystore --ignore=tests/oplog --ignore=tests/capture

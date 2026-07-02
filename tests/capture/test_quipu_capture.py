@@ -27,6 +27,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="shell hooks require Unix paths")
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CAPTURE_HOOK = _REPO_ROOT / "core" / "hooks" / "quipu-capture.sh"
 _PRECOMPACT_HOOK = _REPO_ROOT / "core" / "hooks" / "pre-compact.sh"

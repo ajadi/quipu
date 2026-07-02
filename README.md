@@ -11,7 +11,7 @@ Local-first · single-file · zero-infra · no cloud
 [![PyPI](https://img.shields.io/pypi/v/quipu-mcp?label=pypi)](https://pypi.org/project/quipu-mcp/)
 [![MCP](https://img.shields.io/badge/MCP-native-8A2BE2.svg)](https://modelcontextprotocol.io/)
 [![CI](https://github.com/ajadi/quipu/actions/workflows/ci.yml/badge.svg)](https://github.com/ajadi/quipu/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-928%20passing-brightgreen.svg)](#status)
+[![tests](https://img.shields.io/badge/tests-957%20passing-brightgreen.svg)](#status)
 
 <img src="assets/demo.svg" alt="Quipu recalls a past decision in a new AI session" width="760">
 
