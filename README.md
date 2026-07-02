@@ -52,40 +52,29 @@ Quipu is the only one that is **local, single-file, MCP-native, zero-infra, and 
 
 **Claude Code, Cursor, Windsurf, or any MCP client?** Just tell your AI: *"set up Quipu for me"* — it can run the installer and wire up the `.mcp.json` entry for you.
 
+> **📖 [User Guide](docs/USER_GUIDE.md)** — installation, model selection, MCP tools reference, CLI commands, sync setup, troubleshooting.
+
 ---
 
 ## 60-second quickstart
 
-**1. Install** (creates a dedicated venv at `~/.quipu/venv` and fetches the default embedding model — no Hugging Face login required):
+**Install from PyPI:**
+
+```bash
+pip install quipu-mcp
+pip install huggingface_hub
+cd your-project && quipu init
+```
+
+**Or install from source:**
 
 ```sh
 git clone https://github.com/ajadi/quipu && cd quipu
 ./install.sh
 ```
 
-**2. Connect to your MCP client.** Add one entry to your project's `.mcp.json`
-(replace `<your-project-root>` with the absolute path to your project):
-
-```json
-{
-  "mcpServers": {
-    "quipu": {
-      "command": "~/.quipu/venv/bin/python",
-      "args": ["-m", "quipu", "serve"],
-      "env": {
-        "QUIPU_MODE": "project",
-        "QUIPU_PROJECT_ROOT": "<your-project-root>"
-      }
-    }
-  }
-}
-```
-
-**3. Verify.** Restart your MCP client and ask it to write and recall a memory — the
-`quipu_write`, `quipu_search`, and `quipu_list` tools appear in the MCP tool list.
-
-> `quipu init` prints the exact `.mcp.json` snippet for your platform, including
-> the absolute Python path. See [Reference](#reference) for details.
+**Connect to your MCP client.** `quipu init` prints the exact `.mcp.json`
+snippet for your platform — paste it in.
 
 ---
 
@@ -222,8 +211,8 @@ One shared DB for all projects:
 <summary><strong>Model cache</strong></summary>
 
 ONNX weights are stored at `~/.quipu/models/<active-model>/` (overridable via
-`QUIPU_MODEL_DIR`). `install.sh` fetches them on first run and skips the
-download afterwards.
+`QUIPU_MODEL_DIR`). The model downloads **automatically on first use** — no
+separate download step needed.
 
 **Selecting a model.** Set `QUIPU_EMBEDDING_MODEL` to one of the five supported
 keys before starting `quipu serve`. Unset or unknown value → falls back to the
