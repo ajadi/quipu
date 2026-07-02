@@ -198,41 +198,35 @@ if [ -f "$MODEL_DIR/model.onnx" ]; then
 else
     echo "==> Fetching $CHOSEN_MODEL to $MODEL_DIR"
     mkdir -p "$MODEL_DIR"
-    # Prefer venv huggingface-cli; fall back to PATH
-    HF_CLI=""
-    if [ -f "$VENV/bin/huggingface-cli" ]; then
-        HF_CLI="$VENV/bin/huggingface-cli"
-    elif [ -f "$VENV/Scripts/huggingface-cli.exe" ]; then
-        HF_CLI="$VENV/Scripts/huggingface-cli.exe"
-    elif command -v huggingface-cli >/dev/null 2>&1; then
-        HF_CLI="huggingface-cli"
-    fi
 
-    if [ -n "$HF_CLI" ]; then
-        if ! "$HF_CLI" download "$CHOSEN_HF_REPO" --local-dir "$MODEL_DIR"; then
+    if "$PY" -c 'import huggingface_hub' 2>/dev/null; then
+        if ! "$PY" -c "
+from huggingface_hub import snapshot_download
+snapshot_download('$CHOSEN_HF_REPO', local_dir='$MODEL_DIR', local_dir_use_symlinks=False, resume_download=True)
+"; then
             echo "" >&2
             if [ "$CHOSEN_MODEL" = "embeddinggemma-300m" ]; then
                 echo "WARNING: model download failed (likely gated — see below)." >&2
                 echo "" >&2
                 echo "  EmbeddingGemma-300m is a gated model and requires:" >&2
                 echo "  1. Accept the license at https://huggingface.co/google/embeddinggemma-300m" >&2
-                echo "  2. Run: huggingface-cli login   (token from https://huggingface.co/settings/tokens)" >&2
+                echo "  2. Run: hf auth login   (token from https://huggingface.co/settings/tokens)" >&2
                 echo "  3. Re-run this installer." >&2
                 echo "" >&2
                 echo "  To fetch manually after login:" >&2
-                echo "  huggingface-cli download google/embeddinggemma-300m --local-dir \"$MODEL_DIR\"" >&2
+                echo "  hf download google/embeddinggemma-300m --local-dir \"$MODEL_DIR\"" >&2
                 echo "" >&2
             else
                 echo "WARNING: model download failed." >&2
                 echo "  Check your internet connection and retry the installer." >&2
-                echo "  To fetch manually: huggingface-cli download $CHOSEN_HF_REPO --local-dir \"$MODEL_DIR\"" >&2
+                echo "  To fetch manually: hf download $CHOSEN_HF_REPO --local-dir \"$MODEL_DIR\"" >&2
                 echo "" >&2
             fi
         fi
     else
-        echo "WARNING: huggingface-cli not found; skipping model download." >&2
-        echo "  Run manually: pip install huggingface_hub" >&2
-        echo "  Then: huggingface-cli download $CHOSEN_HF_REPO --local-dir \"$MODEL_DIR\"" >&2
+        echo "WARNING: huggingface_hub not installed; model download skipped." >&2
+        echo "  Install: pip install huggingface_hub" >&2
+        echo "  Then: hf download $CHOSEN_HF_REPO --local-dir \"$MODEL_DIR\"" >&2
     fi
 fi
 

@@ -178,19 +178,23 @@ if (Test-Path $ModelOnnx) {
     Write-Host "==> Fetching $ChosenModel to $ModelDir"
     $null = New-Item -ItemType Directory -Force -Path $ModelDir
 
-    $HfCli = Join-Path $Venv "Scripts\huggingface-cli.exe"
-    if (-not (Test-Path $HfCli)) {
-        # fallback to PATH
-        $HfCli = "huggingface-cli"
+    $downloadFailed = $false
+    & $PY -c "import huggingface_hub" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "WARNING: huggingface_hub not installed; model download skipped."
+        Write-Host "  Install manually: pip install huggingface_hub"
+        Write-Host "  Then run: hf download $ChosenHfRepo --local-dir `"$ModelDir`""
+        $downloadFailed = $true
+    } else {
+        try {
+            Write-Host "    Downloading from Hugging Face ($ChosenHfRepo) ..."
+            & $PY -c "from huggingface_hub import snapshot_download; snapshot_download('$ChosenHfRepo', local_dir=r'$ModelDir', local_dir_use_symlinks=False, resume_download=True)"
+            if ($LASTEXITCODE -ne 0) { $downloadFailed = $true }
+        } catch {
+            $downloadFailed = $true
+        }
     }
 
-    $downloadFailed = $false
-    try {
-        & $HfCli download $ChosenHfRepo --local-dir "$ModelDir"
-        if ($LASTEXITCODE -ne 0) { $downloadFailed = $true }
-    } catch {
-        $downloadFailed = $true
-    }
     if ($downloadFailed) {
         Write-Host ""
         if ($ChosenModel -eq "embeddinggemma-300m") {
@@ -198,19 +202,19 @@ if (Test-Path $ModelOnnx) {
             Write-Host ""
             Write-Host "  EmbeddingGemma-300m is a gated model and requires:" -ForegroundColor Yellow
             Write-Host "  1. Accept the license at https://huggingface.co/google/embeddinggemma-300m" -ForegroundColor Yellow
-            Write-Host "  2. Run: huggingface-cli login   (token from https://huggingface.co/settings/tokens)" -ForegroundColor Yellow
+            Write-Host "  2. Run: hf auth login   (token from https://huggingface.co/settings/tokens)" -ForegroundColor Yellow
             Write-Host "  3. Re-run this installer." -ForegroundColor Yellow
             Write-Host ""
             Write-Host "  To fetch manually after login:" -ForegroundColor Yellow
-            Write-Host "  huggingface-cli download google/embeddinggemma-300m --local-dir `"$ModelDir`"" -ForegroundColor Yellow
+            Write-Host "  hf download google/embeddinggemma-300m --local-dir `"$ModelDir`"" -ForegroundColor Yellow
             Write-Host ""
         } else {
             Write-Warning "WARNING: model download failed."
             Write-Host "  Check your internet connection and retry the installer." -ForegroundColor Yellow
-            Write-Host "  To fetch manually: huggingface-cli download $ChosenHfRepo --local-dir `"$ModelDir`"" -ForegroundColor Yellow
+            Write-Host "  To fetch manually: hf download $ChosenHfRepo --local-dir `"$ModelDir`"" -ForegroundColor Yellow
             Write-Host ""
         }
-        # Continue without crashing
+        exit 1
     }
 }
 

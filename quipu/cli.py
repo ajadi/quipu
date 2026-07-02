@@ -284,6 +284,16 @@ def cmd_receipts(
             s.close()
 
 
+def _install_venv_python() -> Optional[str]:
+    """Return the install-script venv Python path if it exists, else None."""
+    venv = Path.home() / ".quipu" / "venv"
+    if sys.platform == "win32":
+        candidate = venv / "Scripts" / "python.exe"
+    else:
+        candidate = venv / "bin" / "python"
+    return str(candidate) if candidate.is_file() else None
+
+
 def cmd_init(mode: Optional[str]) -> int:
     """Implement ``quipu init [--mode project|global|server]``.
 
@@ -342,12 +352,12 @@ def cmd_init(mode: Optional[str]) -> int:
         print("QUIPU_HUB_TOKEN must be set in the environment (never written to disk).")
         print()
         print("Example .mcp.json snippet:")
-        if sys.platform == "win32":
-            venv_python = str(Path.home() / ".quipu" / "venv" / "Scripts" / "python.exe")
+        if _install_venv_python() is not None:
+            python_cmd = str(_install_venv_python())
         else:
-            venv_python = str(Path.home() / ".quipu" / "venv" / "bin" / "python")
+            python_cmd = sys.executable
         snippet = {
-            "command": venv_python,
+            "command": python_cmd,
             "args": ["-m", "quipu", "serve"],
             "env": {
                 "QUIPU_MODE": "project",
@@ -400,12 +410,14 @@ def cmd_init(mode: Optional[str]) -> int:
         print(f'  QUIPU_MODE=global')
     print()
     print("Example .mcp.json snippet:")
-    if sys.platform == "win32":
-        venv_python = str(Path.home() / ".quipu" / "venv" / "Scripts" / "python.exe")
+    # Use the install-script venv if it exists, otherwise the current Python
+    # (handles both install.sh and pip install quipu-mcp)
+    if _install_venv_python() is not None:
+        python_cmd = _install_venv_python()
     else:
-        venv_python = str(Path.home() / ".quipu" / "venv" / "bin" / "python")
+        python_cmd = sys.executable
     snippet = {
-        "command": venv_python,
+        "command": str(python_cmd),
         "args": ["-m", "quipu", "serve"],
         "env": {
             "QUIPU_MODE": mode,
