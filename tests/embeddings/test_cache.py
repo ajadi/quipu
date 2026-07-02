@@ -26,7 +26,7 @@ class TestModelDir:
         monkeypatch.delenv("QUIPU_MODEL_DIR", raising=False)
         monkeypatch.delenv("QUIPU_EMBEDDING_MODEL", raising=False)
         result = model_dir()
-        assert result == (Path.home() / ".quipu" / "models" / "nomic-embed-v2").resolve()
+        assert result == (Path.home() / ".quipu" / "models" / "nomic-embed-text-v1.5").resolve()
 
     def test_env_override(self, monkeypatch, tmp_path):
         monkeypatch.setenv("QUIPU_MODEL_DIR", str(tmp_path))

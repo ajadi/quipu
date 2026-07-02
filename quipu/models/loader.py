@@ -32,7 +32,7 @@ def _try_auto_download(path, target, model_key) -> None:
             "Then re-run your command to auto-download the model."
         )
 
-    hf_repo = MODELS_DIRECT[model_key]
+    hf_repo = _MODELS_DIRECT[model_key]
     print(f"[quipu] Downloading model {model_key} from {hf_repo} ...", file=sys.stderr)
     print(f"[quipu] This is a one-time download (~1 GB). Please wait.", file=sys.stderr)
 
@@ -42,8 +42,6 @@ def _try_auto_download(path, target, model_key) -> None:
         snapshot_download(
             repo_id=hf_repo,
             local_dir=str(target),
-            local_dir_use_symlinks=False,
-            resume_download=True,
         )
     except Exception as exc:
         raise ModelNotFoundError(

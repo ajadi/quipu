@@ -75,7 +75,7 @@ if ([System.Console]::IsInputRedirected) {
     # Interactive — show picker
     Write-Host ""
     Write-Host "==> Select embedding model:"
-    Write-Host "    1) nomic-embed-v2          (nomic-ai/nomic-embed-v2)         [recommended]"
+    Write-Host "    1) nomic-embed-text-v1.5   (nomic-ai/nomic-embed-text-v1.5)  [recommended]"
     Write-Host "    2) nomic-embed-text-v1.5   (nomic-ai/nomic-embed-text-v1.5)"
     Write-Host "    3) bge-small-en-v1.5       (BAAI/bge-small-en-v1.5)"
     Write-Host "    4) bge-m3                  (BAAI/bge-m3)"

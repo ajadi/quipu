@@ -116,23 +116,36 @@ def search(
             results = tier_r0(atoms, query, top_k)
 
         elif tier == "R1":
-            query_vec = embed(query)
-            # Vec routing: use KNN index when available, else pure-Python.
-            from quipu.vec import query_ready, knn as vec_knn
-            if query_ready(store._conn):
-                rowid_scores = vec_knn(store._conn, query_vec, project_id, top_k)
-                results = _results_from_rowids(store, rowid_scores, "R1", project_id=project_id)
+            try:
+                query_vec = embed(query)
+            except Exception:
+                # Model not available — fall back to BM25 text search
+                import sys as _sys
+                print("[quipu] WARNING: embedding model unavailable, falling back to R2 (BM25)", file=_sys.stderr)
+                results = tier_r2(atoms, query, top_k)
             else:
-                results = tier_r1(atoms, query_vec, top_k)
+                # Vec routing: use KNN index when available, else pure-Python.
+                from quipu.vec import query_ready, knn as vec_knn
+                if query_ready(store._conn):
+                    rowid_scores = vec_knn(store._conn, query_vec, project_id, top_k)
+                    results = _results_from_rowids(store, rowid_scores, "R1", project_id=project_id)
+                else:
+                    results = tier_r1(atoms, query_vec, top_k)
 
         elif tier == "R2":
             results = tier_r2(atoms, query, top_k)
 
         else:
             # R3 — fusion of cosine + BM25 + access-frequency signals.
-            query_vec = embed(query)
-            results = tier_r3(atoms, query, query_vec, top_k,
-                              w_cos=w_cos, w_bm25=w_bm25, w_access=w_access)
+            try:
+                query_vec = embed(query)
+            except Exception:
+                import sys as _sys
+                print("[quipu] WARNING: embedding model unavailable, falling back to R2 (BM25)", file=_sys.stderr)
+                results = tier_r2(atoms, query, top_k)
+            else:
+                results = tier_r3(atoms, query, query_vec, top_k,
+                                  w_cos=w_cos, w_bm25=w_bm25, w_access=w_access)
 
         # Graph expand: append connected atoms via BFS from top results
         if graph_expand and results:

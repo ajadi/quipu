@@ -35,7 +35,7 @@ MODELS: dict[str, dict] = {
     },
 }
 
-DEFAULT_MODEL = "nomic-embed-v2"
+DEFAULT_MODEL = "nomic-embed-text-v1.5"
 
 _DEFAULT_BASE = Path.home() / ".quipu" / "models"
 

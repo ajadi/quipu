@@ -252,5 +252,11 @@ def _resolve_passphrase(explicit: str | None) -> str:
     if env:
         return env
     # Prompt as last resort (interactive sessions only).
+    import sys as _sys
+    if not _sys.stdin.isatty():
+        raise RuntimeError(
+            "No passphrase available. Set QUIPU_PASSPHRASE env var "
+            "or run in an interactive terminal."
+        )
     import getpass
     return getpass.getpass("Quipu passphrase: ")
