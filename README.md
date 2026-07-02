@@ -8,8 +8,11 @@ Local-first · single-file · zero-infra · no cloud
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![PyPI](https://img.shields.io/pypi/v/quipu-mcp.svg)](https://pypi.org/project/quipu-mcp/)
 [![MCP](https://img.shields.io/badge/MCP-native-8A2BE2.svg)](https://modelcontextprotocol.io/)
+[![CI](https://github.com/ajadi/quipu/actions/workflows/ci.yml/badge.svg)](https://github.com/ajadi/quipu/actions/workflows/ci.yml)
 [![tests](https://img.shields.io/badge/tests-928%20passing-brightgreen.svg)](#status)
+[![downloads](https://img.shields.io/pypi/dm/quipu-mcp.svg)](https://pypi.org/project/quipu-mcp/)
 
 <img src="assets/demo.svg" alt="Quipu recalls a past decision in a new AI session" width="760">
 

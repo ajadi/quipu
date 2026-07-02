@@ -19,6 +19,7 @@ dependencies = [
 
 [project.optional-dependencies]
 vec = ["sqlite-vec>=0.1.6"]
+test = ["pytest>=8"]
 
 [project.scripts]
 quipu = "quipu.__main__:main"
