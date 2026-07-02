@@ -1,15 +1,9 @@
-"""Tests for quipu.cli.get_version and __version__ fallback."""
+"""Tests for quipu.cli.get_version and __version__ import."""
 
 from __future__ import annotations
 
-import importlib
-import sys
-import types
-from unittest.mock import patch
-
-import pytest
-
-from quipu.cli import __version__, get_version
+import quipu
+from quipu.cli import get_version
 
 
 class TestGetVersion:
@@ -19,24 +13,19 @@ class TestGetVersion:
         assert len(v) > 0
 
     def test_starts_with_digit(self):
-        """Version string should look like semver (major.minor.patch)."""
         v = get_version()
         assert v[0].isdigit(), f"Expected version to start with a digit, got {v!r}"
 
-    def test_fallback_when_metadata_absent(self):
-        """When importlib.metadata raises, get_version() falls back to __version__."""
-        def _raise(_name):
-            raise importlib.metadata.PackageNotFoundError("quipu-mcp")
+    def test_matches_init_version(self):
+        assert get_version() == quipu.__version__
 
-        with patch("importlib.metadata.version", side_effect=_raise):
-            v = get_version()
-        assert v == __version__
+    def test_init_version_is_semver_like(self):
+        parts = quipu.__version__.split(".")
+        assert len(parts) == 3, f"Expected 3 semver parts, got {quipu.__version__!r}"
+        for p in parts:
+            assert p.isdigit(), f"Expected numeric part, got {p!r}"
 
-    def test_module_level_version_constant(self):
-        assert __version__ == "0.2.0"
-
-    def test_get_version_matches_metadata_when_installed(self, monkeypatch):
-        """When metadata is available, get_version() returns its value."""
-        monkeypatch.setattr("importlib.metadata.version", lambda _name: "9.8.7")
-        v = get_version()
-        assert v == "9.8.7"
+    def test_baked_version_used_when_present(self, monkeypatch):
+        monkeypatch.setattr(quipu, "__version__", "1.2.3")
+        assert quipu.__version__ == "1.2.3"
+        assert get_version() == "1.2.3"

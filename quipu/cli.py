@@ -13,22 +13,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-__version__: str = "0.2.0"
-
-
 def get_version() -> str:
-    """Return the installed package version, falling back to __version__.
+    """Return the running package version.
 
-    Uses importlib.metadata so the version is always consistent with what
-    was installed. Falls back to the module-level __version__ when running
-    from source without installation (e.g., CI, development).
+    Resolves from quipu/__init__.py fallback chain:
+    _build_version -> importlib.metadata -> 0.0.0.
     """
-    try:
-        from importlib.metadata import version
+    from quipu import __version__
 
-        return version("quipu-mcp")
-    except Exception:
-        return __version__
+    return __version__
 
 
 def _config_path(mode: str, project_root: Path) -> Path:
