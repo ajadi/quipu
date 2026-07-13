@@ -213,13 +213,13 @@ class Store:
         if include_invalidated:
             sql = (
                 "SELECT * FROM atoms WHERE project_id = ? "
-                "ORDER BY created_at DESC"
+                "ORDER BY created_at DESC, rowid DESC"
             )
             params: tuple = (project_id,)
         else:
             sql = (
                 "SELECT * FROM atoms WHERE project_id = ? AND invalidated = 0 "
-                "ORDER BY created_at DESC"
+                "ORDER BY created_at DESC, rowid DESC"
             )
             params = (project_id,)
 
