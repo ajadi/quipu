@@ -24,6 +24,7 @@ from quipu.vec._meta import (
     is_build_complete,
 )
 from quipu.storage.store import pack_embedding
+from quipu.models.cache import active_dim
 
 
 def _unit_vec(i: int, dim: int = 384) -> list[float]:
@@ -198,3 +199,31 @@ class TestInstallTriggers:
         install_triggers(seeded_conn)
         count = seeded_conn.execute("SELECT count(*) FROM atoms_vec").fetchone()[0]
         assert count == 5
+
+
+# ---------------------------------------------------------------------------
+# TASK-053 — vec0 DDL is parameterized by active_dim(), not hardcoded 384
+# ---------------------------------------------------------------------------
+
+class TestBuildDimAgnostic:
+    def test_atoms_vec_ddl_uses_active_dim(self, tmp_conn, monkeypatch):
+        """The CREATE VIRTUAL TABLE statement embeds float[<active_dim()>]."""
+        monkeypatch.setenv("QUIPU_EMBEDDING_MODEL", "bge-small-en-v1.5")  # dim=384
+        _load_ext(tmp_conn)
+        build(tmp_conn)
+
+        row = tmp_conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name='atoms_vec'"
+        ).fetchone()
+        assert row is not None
+        assert f"float[{active_dim()}]" in row[0]
+        assert active_dim() == 384
+
+    def test_ember_vec_meta_dim_matches_active_dim(self, tmp_conn, monkeypatch):
+        """set_build_status records dim == active_dim() at build time."""
+        monkeypatch.setenv("QUIPU_EMBEDDING_MODEL", "bge-m3")  # dim=1024
+        _load_ext(tmp_conn)
+        build(tmp_conn)
+
+        from quipu.vec._meta import get_build_dim
+        assert get_build_dim(tmp_conn) == active_dim() == 1024

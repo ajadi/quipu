@@ -4,7 +4,18 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-EMBED_DIM = 384
+from quipu.models.cache import active_dim, active_model
+
+# Frozen at import time from the active model — environment changes after
+# import are not reflected here. Live dimension checks must call embed_dim().
+# In keyword-only mode EMBED_DIM is intentionally None; the server's test hook
+# owns its separate numeric fallback and must not redefine this contract.
+EMBED_DIM = active_dim() if active_model() is not None else None
+
+
+def embed_dim() -> int:
+    """Return the active model's embedding dimension (env-sensitive, live)."""
+    return active_dim()
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +193,7 @@ def embed(text: str) -> List[float]:
         text: Input string.
 
     Returns:
-        L2-normalized float vector of length ``EMBED_DIM`` (384).
+        L2-normalized float vector of length ``embed_dim()`` (active model's dim).
     """
     return _get_engine().encode([text])[0]
 
@@ -194,7 +205,7 @@ def embed_batch(texts: List[str]) -> List[List[float]]:
         texts: Input strings. Empty list returns empty list.
 
     Returns:
-        One L2-normalized 384-dim vector per input, order preserved.
+        One L2-normalized ``embed_dim()``-dim vector per input, order preserved.
     """
     if not texts:
         return []

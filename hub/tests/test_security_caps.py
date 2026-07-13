@@ -50,6 +50,7 @@ def small_cap_client(tmp_path):
     cfg.rate_window = 3600
     cfg.max_body_bytes = SMALL_BODY_CAP
     cfg.max_entries = 1000
+    cfg.max_pull = 500
     cfg.tls_cert = None
     cfg.tls_key = None
 

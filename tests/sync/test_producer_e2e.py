@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tests._semantic import TEST_EMBED_DIM
 
 _repo_root = Path(__file__).resolve().parents[2]
 if str(_repo_root) not in sys.path:
@@ -49,9 +50,6 @@ TEST_KEY_B64 = base64.b64encode(TEST_KEY).decode()
 TOKEN = "e2e-producer-token"
 TOKEN_HASH = hashlib.sha256(TOKEN.encode()).hexdigest()
 PROJECT_ID = "proj-e2e-producer"
-EMBED_DIM = 384
-
-
 # ---------------------------------------------------------------------------
 # Fake embedding engine (no ONNX needed)
 # ---------------------------------------------------------------------------
@@ -70,7 +68,7 @@ class _FakeSession:
     def run(self, output_names, feeds):
         import numpy as np
         n = feeds["input_ids"].shape[0]
-        return [np.ones((n, EMBED_DIM), dtype=np.float32)]
+        return [np.ones((n, TEST_EMBED_DIM), dtype=np.float32)]
 
 
 class _FakeTokenizer:
@@ -90,7 +88,7 @@ class _UnitVecSession:
     def run(self, output_names, feeds):
         import numpy as np
         n = feeds["input_ids"].shape[0]
-        arr = np.zeros((n, EMBED_DIM), dtype=np.float32)
+        arr = np.zeros((n, TEST_EMBED_DIM), dtype=np.float32)
         arr[:, 0] = 1.0
         return [arr]
 
@@ -121,6 +119,7 @@ def hub_client(tmp_path):
     cfg.rate_window = 3600
     cfg.max_body_bytes = 10 * 1024 * 1024
     cfg.max_entries = 1000
+    cfg.max_pull = 500
     cfg.tls_cert = None
     cfg.tls_key = None
     app = create_app(config=cfg)
@@ -181,7 +180,7 @@ def _reset_embed():
 
 
 @pytest.fixture()
-def active_env(monkeypatch, tmp_path):
+def active_env(semantic_model, monkeypatch, tmp_path):
     """Set env so the producer considers sync active on client A."""
     monkeypatch.setenv("QUIPU_KEY", TEST_KEY_B64)
     monkeypatch.setenv("QUIPU_HUB_URL", "http://hub-e2e-fake")

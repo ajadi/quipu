@@ -13,7 +13,7 @@ _repo_root = Path(__file__).resolve().parents[2]
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from quipu.embeddings.engine import _reset, EMBED_DIM
+from quipu.embeddings.engine import _reset
 from quipu.storage import store as open_store
 from quipu.storage.store import pack_embedding
 

@@ -80,6 +80,7 @@ def client(tmp_db, tmp_audit):
     cfg.rate_window = 3600
     cfg.max_body_bytes = 10 * 1024 * 1024
     cfg.max_entries = 1000
+    cfg.max_pull = 500
     cfg.tls_cert = None
     cfg.tls_key = None
 

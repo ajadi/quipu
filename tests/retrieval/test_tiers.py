@@ -7,15 +7,12 @@ import struct
 from dataclasses import dataclass, field
 
 import pytest
+from tests._semantic import TEST_EMBED_DIM
 
 from quipu.retrieval.tiers import tier_r0, tier_r1, tier_r2, tier_r3
 from quipu.storage.store import pack_embedding
-
-EMBED_DIM = 384
-
-
 def _unit_vec(index: int) -> list[float]:
-    v = [0.0] * EMBED_DIM
+    v = [0.0] * TEST_EMBED_DIM
     v[index] = 1.0
     return v
 
@@ -84,6 +81,7 @@ class TestTierR0:
 # R1 — cosine
 # ---------------------------------------------------------------------------
 
+@pytest.mark.usefixtures("semantic_model")
 class TestTierR1:
     def test_ordered_by_cosine_desc(self):
         """Atom B at index 1 closer to query at index 1 than atom A at index 0."""
@@ -162,6 +160,7 @@ class TestTierR2:
 # R3 — fusion
 # ---------------------------------------------------------------------------
 
+@pytest.mark.usefixtures("semantic_model")
 class TestTierR3:
     def _make_atoms(self):
         """Three atoms: X wins cosine, Y wins BM25, Z is mid."""

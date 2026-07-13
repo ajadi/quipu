@@ -6,17 +6,62 @@ All tests use injected fake session/tokenizer — no model file required.
 from __future__ import annotations
 
 import math
+import os
+from pathlib import Path
+import subprocess
+import sys
 import pytest
 import numpy as np
+from tests._semantic import TEST_EMBED_DIM
 
 from quipu.embeddings.engine import (
-    EMBED_DIM,
     _Engine,
     _reset,
     embed,
     embed_batch,
+    embed_dim,
     set_engine,
 )
+from quipu.models.cache import active_model
+
+
+@pytest.mark.parametrize("model", [None, "none"])
+def test_import_is_safe_in_keyword_only_mode(model):
+    env = os.environ.copy()
+    if model is None:
+        env.pop("QUIPU_EMBEDDING_MODEL", None)
+    else:
+        env["QUIPU_EMBEDDING_MODEL"] = model
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from quipu.embeddings import EMBED_DIM, embed_dim\n"
+            "assert EMBED_DIM is None\n"
+            "try:\n"
+            "    embed_dim()\n"
+            "except ValueError:\n"
+            "    print('safe')\n"
+            "else:\n"
+            "    raise AssertionError('embed_dim unexpectedly succeeded')\n",
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "safe"
+
+
+def test_keyword_only_in_process_contract(monkeypatch):
+    monkeypatch.setenv("QUIPU_EMBEDDING_MODEL", "none")
+
+    assert active_model() is None
+    with pytest.raises(ValueError, match="keyword-only"):
+        embed_dim()
 
 
 # ---------------------------------------------------------------------------
@@ -95,9 +140,9 @@ class _FakeSession:
     def run(self, output_names, feeds):
         n = feeds["input_ids"].shape[0]
         if self._rank == 3:
-            arr = np.full((n, self._seq_len, EMBED_DIM), self._value, dtype=np.float32)
+            arr = np.full((n, self._seq_len, TEST_EMBED_DIM), self._value, dtype=np.float32)
         else:
-            arr = np.full((n, EMBED_DIM), self._value, dtype=np.float32)
+            arr = np.full((n, TEST_EMBED_DIM), self._value, dtype=np.float32)
         return [arr]
 
 
@@ -146,19 +191,19 @@ class _DistinctFakeSession:
         n = ids.shape[0]
         seq_len = ids.shape[1]
         # dim_ramp: shape (EMBED_DIM,) = [1, 2, ..., 384]
-        dim_ramp = np.arange(1, EMBED_DIM + 1, dtype=np.float32)
+        dim_ramp = np.arange(1, TEST_EMBED_DIM + 1, dtype=np.float32)
         # For each embedding dim d, the token index that contributes is d % seq_len.
         # tile_ids[row, d] = ids[row, d % seq_len]
-        dim_indices = np.arange(EMBED_DIM) % seq_len  # (EMBED_DIM,)
-        tile_ids = ids[:, dim_indices].astype(np.float32)  # (N, EMBED_DIM)
+        dim_indices = np.arange(TEST_EMBED_DIM) % seq_len  # (TEST_EMBED_DIM,)
+        tile_ids = ids[:, dim_indices].astype(np.float32)  # (N, TEST_EMBED_DIM)
         # pooled[row, dim] = tile_ids[row, dim] * dim_ramp[dim]
-        pooled = tile_ids * dim_ramp[np.newaxis, :]  # (N, EMBED_DIM)
+        pooled = tile_ids * dim_ramp[np.newaxis, :]  # (N, TEST_EMBED_DIM)
         if self._rank == 2:
             return [pooled]
         # Rank-3: broadcast pooled row across all token positions so that
         # mean-pooling recovers pooled exactly (each token == same row-vector).
         arr = np.broadcast_to(
-            pooled[:, np.newaxis, :], (n, self._seq_len, EMBED_DIM)
+            pooled[:, np.newaxis, :], (n, self._seq_len, TEST_EMBED_DIM)
         ).copy()
         return [arr]
 
@@ -183,10 +228,10 @@ def _distinct_expected_vec(text: str, seq_len: int = 8) -> list:
     """
     first_id = (hash(text) % 998) + 2
     ids = np.array([first_id] + [1] * (seq_len - 1), dtype=np.float32)
-    dim_ramp = np.arange(1, EMBED_DIM + 1, dtype=np.float32)
-    dim_indices = np.arange(EMBED_DIM) % seq_len
-    tile_ids = ids[dim_indices]             # (EMBED_DIM,)
-    raw = tile_ids * dim_ramp              # (EMBED_DIM,)
+    dim_ramp = np.arange(1, TEST_EMBED_DIM + 1, dtype=np.float32)
+    dim_indices = np.arange(TEST_EMBED_DIM) % seq_len
+    tile_ids = ids[dim_indices]             # (TEST_EMBED_DIM,)
+    raw = tile_ids * dim_ramp              # (TEST_EMBED_DIM,)
     return (raw / np.linalg.norm(raw)).tolist()
 
 
@@ -230,7 +275,7 @@ def fake_engine_rank2():
 class TestEmbed:
     def test_returns_correct_dimension(self, fake_engine_rank3):
         result = embed("hello world")
-        assert len(result) == EMBED_DIM
+        assert len(result) == TEST_EMBED_DIM
 
     def test_returns_list_of_float(self, fake_engine_rank3):
         result = embed("hello world")
@@ -278,7 +323,7 @@ class TestEmbed:
 
         expected_vec = _distinct_expected_vec(text, seq_len=8)
         result = embed(text)
-        assert len(result) == EMBED_DIM
+        assert len(result) == TEST_EMBED_DIM
         for got, exp in zip(result, expected_vec):
             assert abs(got - exp) < 1e-5, (
                 "Rank-2 passthrough must L2-normalize the raw vector element-wise"
@@ -302,7 +347,7 @@ class TestEmbedBatch:
     def test_each_vector_correct_dim(self, fake_engine_rank3):
         result = embed_batch(["a", "b"])
         for vec in result:
-            assert len(vec) == EMBED_DIM
+            assert len(vec) == TEST_EMBED_DIM
 
     def test_each_vector_normalized(self, fake_engine_rank3):
         result = embed_batch(["a", "b", "c"])
@@ -345,7 +390,7 @@ class TestEmbedBatch:
     def test_single_item_batch(self, fake_engine_rank3):
         result = embed_batch(["only one"])
         assert len(result) == 1
-        assert len(result[0]) == EMBED_DIM
+        assert len(result[0]) == TEST_EMBED_DIM
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +406,7 @@ class TestTruncation:
         long_text = "word " * 10_000
         # Must not raise.
         result = embed(long_text)
-        assert len(result) == EMBED_DIM
+        assert len(result) == TEST_EMBED_DIM
 
 
 # ---------------------------------------------------------------------------
@@ -389,7 +434,7 @@ class TestPoolingBranches:
 
         expected_vec = _distinct_expected_vec(text, seq_len=8)
         result = embed(text)
-        assert len(result) == EMBED_DIM
+        assert len(result) == TEST_EMBED_DIM
         for got, exp in zip(result, expected_vec):
             assert abs(got - exp) < 1e-5, (
                 "Rank-3 mean-pool result does not match expected element-wise; "
@@ -412,7 +457,7 @@ class TestPoolingBranches:
 
         expected_vec = _distinct_expected_vec(text, seq_len=8)
         result = embed(text)
-        assert len(result) == EMBED_DIM
+        assert len(result) == TEST_EMBED_DIM
         for got, exp in zip(result, expected_vec):
             assert abs(got - exp) < 1e-5, (
                 "Rank-2 passthrough result does not match expected element-wise"
@@ -436,8 +481,8 @@ class TestPadInvariance:
         mask-correct expected vector, so a mask-ignoring implementation would
         produce a different unit vector and fail.
         """
-        ramp = np.arange(1, EMBED_DIM + 1, dtype=np.float32)         # [1..384]
-        reverse = np.arange(-EMBED_DIM, 0, dtype=np.float32)          # [-384..-1]
+        ramp = np.arange(1, TEST_EMBED_DIM + 1, dtype=np.float32)         # [1..384]
+        reverse = np.arange(-TEST_EMBED_DIM, 0, dtype=np.float32)          # [-384..-1]
 
         class _DirMixedMaskSession:
             def get_inputs(self):
@@ -536,7 +581,7 @@ class TestNameBasedInputResolution:
         set_engine(engine)
         result = embed(text)
 
-        assert len(result) == EMBED_DIM
+        assert len(result) == TEST_EMBED_DIM
 
         # Expected: name-correct vector uses first_id derived from text.
         expected_vec = _distinct_expected_vec(text, seq_len=seq_len)
@@ -551,7 +596,7 @@ class TestNameBasedInputResolution:
         # When all input_ids = 1 (mask fed as ids), raw[dim] = 1 * (dim+1) = ramp.
         first_id = (hash(text) % 998) + 2
         assert first_id != 1, f"first_id={first_id} == 1 would make this test non-discriminating"
-        dim_ramp = np.arange(1, EMBED_DIM + 1, dtype=np.float32)
+        dim_ramp = np.arange(1, TEST_EMBED_DIM + 1, dtype=np.float32)
         wrong_raw = dim_ramp  # all ids=1 → 1*(dim+1)
         wrong_vec = (wrong_raw / np.linalg.norm(wrong_raw)).tolist()
         max_diff = max(abs(e - w) for e, w in zip(expected_vec, wrong_vec))
@@ -570,7 +615,7 @@ class TestNameBasedInputResolution:
         engine = _Engine(session=session, tokenizer=_FakeTokenizer(seq_len=8))
         set_engine(engine)
         result = embed("aux input present")
-        assert len(result) == EMBED_DIM
+        assert len(result) == TEST_EMBED_DIM
 
     def test_missing_input_ids_raises_runtime_error(self):
         """If input_ids cannot be found by name, RuntimeError must be raised."""
@@ -582,7 +627,7 @@ class TestNameBasedInputResolution:
                 return [_N("last_hidden_state")]
 
             def run(self, output_names, feeds):  # pragma: no cover
-                return [np.zeros((1, 8, EMBED_DIM), dtype=np.float32)]
+                return [np.zeros((1, 8, TEST_EMBED_DIM), dtype=np.float32)]
 
         with pytest.raises(RuntimeError, match="input_ids"):
             _Engine(session=_BadSession(), tokenizer=_FakeTokenizer())
@@ -597,7 +642,7 @@ class TestNameBasedInputResolution:
                 return [_N("last_hidden_state")]
 
             def run(self, output_names, feeds):  # pragma: no cover
-                return [np.zeros((1, 8, EMBED_DIM), dtype=np.float32)]
+                return [np.zeros((1, 8, TEST_EMBED_DIM), dtype=np.float32)]
 
         with pytest.raises(RuntimeError, match="attention"):
             _Engine(session=_NoMaskSession(), tokenizer=_FakeTokenizer())

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+from importlib.metadata import PackageNotFoundError, version
 
 from mcp.server import Server
 from mcp.server.models import InitializationOptions
@@ -25,6 +26,11 @@ from quipu.mcp.tools import TOOLS, dispatch
 from quipu.storage import Store
 
 logger = logging.getLogger(__name__)
+
+try:
+    _QUIPU_VERSION = version("quipu-mcp")
+except PackageNotFoundError:  # running from a source tree without install metadata
+    _QUIPU_VERSION = "0.0.0+unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +71,7 @@ def _install_fake_embed_engine() -> None:  # pragma: no cover — test-hook path
 
         def run(self, output_names, feeds):
             n = feeds["input_ids"].shape[0]
-            return [np.full((n, EMBED_DIM), 1.0, dtype=np.float32)]
+            return [np.full((n, EMBED_DIM or 384), 1.0, dtype=np.float32)]
 
     set_engine(_Engine(session=_FakeSess(), tokenizer=_FakeTok()))
 
@@ -80,7 +86,7 @@ def build_server(store: Store, default_project_id: str | None) -> Server:
     Returns:
         Configured mcp.server.Server with list_tools and call_tool handlers.
     """
-    server = Server("quipu", version="0.1.0")
+    server = Server("quipu", version=_QUIPU_VERSION)
 
     @server.list_tools()
     async def list_tools() -> list[Tool]:

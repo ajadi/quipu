@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from tests._semantic import TEST_EMBED_DIM
 
 _repo_root = Path(__file__).resolve().parents[2]
 if str(_repo_root) not in sys.path:
@@ -29,12 +30,9 @@ from quipu.storage.store import unpack_embedding
 # Helpers
 # ---------------------------------------------------------------------------
 
-EMBED_DIM = 384
-
-
 def _unit_vec(i: int) -> list[float]:
-    v = [0.0] * EMBED_DIM
-    v[i % EMBED_DIM] = 1.0
+    v = [0.0] * TEST_EMBED_DIM
+    v[i % TEST_EMBED_DIM] = 1.0
     return v
 
 
@@ -49,7 +47,7 @@ def _fake_embed_factory(vec: list[float]):
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def seeded_store(tmp_store):
+def seeded_store(tmp_store, semantic_model):
     for i in range(5):
         tmp_store.insert(
             content=f"atom content {i}",
@@ -118,6 +116,7 @@ class TestR1FallbackPurePython:
 # Scenario 2: query_ready=True + fake knn → vec path used
 # ---------------------------------------------------------------------------
 
+@pytest.mark.usefixtures("semantic_model")
 class TestR1VecRouting:
     """When query_ready is True, search(tier="R1") must use the vec path."""
 

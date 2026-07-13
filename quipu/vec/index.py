@@ -19,6 +19,7 @@ import sqlite3
 from quipu.vec._gate import try_load
 from quipu.vec._build import atom_count, build, is_build_complete
 from quipu.vec._meta import ensure_meta_table, get_build_status
+from quipu.vec._query import assert_dim_matches
 
 _logger = logging.getLogger(__name__)
 
@@ -81,6 +82,7 @@ def ensure_index(
 
     # --- 3. Already complete? ---
     if status == "complete":
+        assert_dim_matches(conn)
         return VecState.READY
 
     # --- 4. Build (idempotent) ---
@@ -92,6 +94,7 @@ def ensure_index(
 
     # After build(), check actual status.
     if is_build_complete(conn):
+        assert_dim_matches(conn)
         return VecState.READY
 
     # Still in progress (shouldn't normally happen in synchronous path).

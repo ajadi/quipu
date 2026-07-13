@@ -15,24 +15,28 @@ _ISO8601_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
 # ---------------------------------------------------------------------------
 # Embedding helpers (stdlib only — no numpy)
 # ---------------------------------------------------------------------------
-
-_EMBEDDING_DIMS = 384
-_EMBEDDING_FORMAT = f"<{_EMBEDDING_DIMS}f"
-_EMBEDDING_BYTES = _EMBEDDING_DIMS * 4  # 1536 bytes
+# Dimension is derived from the active model at CALL time (not import time),
+# so a QUIPU_EMBEDDING_MODEL change is honored without reimporting.
 
 
 def pack_embedding(vec: list[float]) -> bytes:
-    """Pack a 384-dim float32 list to little-endian BLOB bytes."""
-    if len(vec) != _EMBEDDING_DIMS:
-        raise ValueError(f"expected {_EMBEDDING_DIMS} dims, got {len(vec)}")
-    return struct.pack(_EMBEDDING_FORMAT, *vec)
+    """Pack a float32 list (active model's dim) to little-endian BLOB bytes."""
+    from quipu.models.cache import active_dim
+
+    dim = active_dim()
+    if len(vec) != dim:
+        raise ValueError(f"expected {dim} dims, got {len(vec)}")
+    return struct.pack(f"<{dim}f", *vec)
 
 
 def unpack_embedding(blob: bytes) -> list[float]:
-    """Unpack a 1536-byte BLOB to a 384-dim float32 list."""
-    if len(blob) != _EMBEDDING_BYTES:
-        raise ValueError(f"expected {_EMBEDDING_BYTES} bytes, got {len(blob)}")
-    return list(struct.unpack(_EMBEDDING_FORMAT, blob))
+    """Unpack a BLOB to a float32 list of the active model's dim."""
+    from quipu.models.cache import active_dim
+
+    dim = active_dim()
+    if len(blob) != dim * 4:
+        raise ValueError(f"expected {dim * 4} bytes, got {len(blob)}")
+    return list(struct.unpack(f"<{dim}f", blob))
 
 
 # ---------------------------------------------------------------------------
@@ -227,34 +231,6 @@ class Store:
         rows = self._conn.execute(sql, params).fetchall()
         return [_row_to_atom(r) for r in rows]
 
-    def list_by_session(
-        self,
-        project_id: str,
-        session_id: str,
-        *,
-        include_invalidated: bool = True,
-        limit: int | None = None,
-    ) -> list["Atom"]:
-        """Return atoms for a given project_id and session_id, ordered by created_at DESC."""
-        if include_invalidated:
-            sql = (
-                "SELECT * FROM atoms WHERE project_id = ? AND session_id = ? "
-                "ORDER BY created_at DESC"
-            )
-        else:
-            sql = (
-                "SELECT * FROM atoms WHERE project_id = ? AND session_id = ? "
-                "AND invalidated = 0 ORDER BY created_at DESC"
-            )
-
-        if limit is not None:
-            if not isinstance(limit, int) or limit < 1:
-                raise ValueError(f"limit must be a positive int, got {limit!r}")
-            sql += f" LIMIT {int(limit)}"
-
-        rows = self._conn.execute(sql, (project_id, session_id)).fetchall()
-        return [_row_to_atom(r) for r in rows]
-
     def increment_access(self, atom_id: str) -> bool:
         """Increment access_count and set last_accessed to now.
 
@@ -268,6 +244,25 @@ class Store:
         )
         self._conn.commit()
         return cur.rowcount > 0
+
+    def increment_access_batch(self, atom_ids: list[str]) -> int:
+        """Increment access_count and set last_accessed to now for all *atom_ids*
+        in a single UPDATE + single commit.
+
+        Returns the number of rows updated. No-op (returns 0) if *atom_ids* is
+        empty.
+        """
+        if not atom_ids:
+            return 0
+        placeholders = ",".join("?" for _ in atom_ids)
+        cur = self._conn.execute(
+            "UPDATE atoms SET access_count = access_count + 1, "
+            "last_accessed = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+            f"WHERE id IN ({placeholders})",
+            atom_ids,
+        )
+        self._conn.commit()
+        return cur.rowcount
 
     def list_stale(
         self,

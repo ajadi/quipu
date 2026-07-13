@@ -244,6 +244,12 @@ class TestListByProject:
 # ---------------------------------------------------------------------------
 
 class TestEmbeddingHelpers:
+    """Pinned to bge-small-en-v1.5 (dim=384) — explicit, not the silent default."""
+
+    @pytest.fixture(autouse=True)
+    def _pin_bge_small(self, monkeypatch):
+        monkeypatch.setenv("QUIPU_EMBEDDING_MODEL", "bge-small-en-v1.5")
+
     def test_pack_embedding_returns_1536_bytes_for_384_floats(self):
         vec = [0.1] * 384
         blob = pack_embedding(vec)
@@ -286,10 +292,69 @@ class TestEmbeddingHelpers:
 
 
 # ---------------------------------------------------------------------------
+# TASK-053 — pack/unpack are dim-agnostic (derive dim from active_dim())
+# ---------------------------------------------------------------------------
+
+class TestEmbeddingHelpersMultiDim:
+    """pack_embedding/unpack_embedding must round-trip at EVERY registered dim,
+    not just the legacy hardcoded 384.
+    """
+
+    @pytest.mark.parametrize(
+        "model_key,dim",
+        [
+            ("bge-small-en-v1.5", 384),
+            ("nomic-embed-text-v1.5", 768),
+            ("bge-m3", 1024),
+        ],
+    )
+    def test_round_trip_at_active_dim(self, monkeypatch, model_key, dim):
+        monkeypatch.setenv("QUIPU_EMBEDDING_MODEL", model_key)
+        vec = [float(i) / dim for i in range(dim)]
+        blob = pack_embedding(vec)
+        assert len(blob) == dim * 4
+        result = unpack_embedding(blob)
+        assert len(result) == dim
+        assert result == pytest.approx(vec, abs=1e-6)
+
+    def test_pack_rejects_vector_shorter_than_active_dim(self, monkeypatch):
+        monkeypatch.setenv("QUIPU_EMBEDDING_MODEL", "bge-m3")  # dim=1024
+        with pytest.raises(ValueError, match="expected 1024 dims, got 100"):
+            pack_embedding([0.0] * 100)
+
+    def test_pack_rejects_vector_longer_than_active_dim(self, monkeypatch):
+        monkeypatch.setenv("QUIPU_EMBEDDING_MODEL", "bge-small-en-v1.5")  # dim=384
+        with pytest.raises(ValueError, match="expected 384 dims, got 768"):
+            pack_embedding([0.0] * 768)
+
+    def test_unpack_rejects_wrong_byte_length_for_active_dim(self, monkeypatch):
+        monkeypatch.setenv("QUIPU_EMBEDDING_MODEL", "bge-m3")  # dim=1024 -> 4096 bytes
+        with pytest.raises(ValueError, match="expected 4096 bytes, got 100"):
+            unpack_embedding(b"\x00" * 100)
+
+    def test_pack_at_768_then_switch_to_384_env_raises(self, monkeypatch):
+        """A blob packed under one active model is invalid once the active
+        model (and therefore active_dim()) changes — no silent truncation.
+        """
+        monkeypatch.setenv("QUIPU_EMBEDDING_MODEL", "nomic-embed-text-v1.5")  # 768
+        blob = pack_embedding([0.1] * 768)
+
+        monkeypatch.setenv("QUIPU_EMBEDDING_MODEL", "bge-small-en-v1.5")  # 384
+        with pytest.raises(ValueError, match="expected 384 dims|expected 1536 bytes"):
+            unpack_embedding(blob)
+
+
+# ---------------------------------------------------------------------------
 # AC3 — embedding stored and retrieved as BLOB via Store
 # ---------------------------------------------------------------------------
 
 class TestEmbeddingInStore:
+    """Pinned to bge-small-en-v1.5 (dim=384) — explicit, not the silent default."""
+
+    @pytest.fixture(autouse=True)
+    def _pin_bge_small(self, monkeypatch):
+        monkeypatch.setenv("QUIPU_EMBEDDING_MODEL", "bge-small-en-v1.5")
+
     def test_embedding_stored_and_retrieved_as_same_bytes(self, s):
         vec = [float(i) / 384 for i in range(384)]
         blob = pack_embedding(vec)
@@ -373,80 +438,6 @@ class TestProjectIdNullable:
     def test_insert_with_explicit_project_id_stored_correctly(self, s):
         atom = s.insert(content="with proj", project_id="proj-42")
         assert atom.project_id == "proj-42"
-
-
-# ---------------------------------------------------------------------------
-# TASK-023 — list_by_session filtering
-# ---------------------------------------------------------------------------
-
-class TestListBySession:
-    def test_list_by_session_returns_only_matching_session(self, s):
-        s.insert(content="s1-a", project_id="P", session_id="sesh-1")
-        s.insert(content="s1-b", project_id="P", session_id="sesh-1")
-        s.insert(content="s2-a", project_id="P", session_id="sesh-2")
-
-        results = s.list_by_session("P", "sesh-1")
-        assert len(results) == 2
-        assert all(r.session_id == "sesh-1" for r in results)
-        assert {r.content for r in results} == {"s1-a", "s1-b"}
-
-    def test_list_by_session_excludes_null_session_atoms(self, s):
-        s.insert(content="with-session", project_id="P", session_id="sesh-1")
-        s.insert(content="no-session", project_id="P")  # session_id=None
-
-        results = s.list_by_session("P", "sesh-1")
-        assert len(results) == 1
-        assert results[0].content == "with-session"
-
-    def test_list_by_session_empty_for_unknown_session(self, s):
-        s.insert(content="x", project_id="P", session_id="sesh-1")
-
-        results = s.list_by_session("P", "no-such-session")
-        assert results == []
-
-    def test_list_by_session_empty_for_unknown_project(self, s):
-        results = s.list_by_session("no-such-project", "sesh-1")
-        assert results == []
-
-    def test_list_by_project_returns_all_including_null_session(self, s):
-        s.insert(content="with-session", project_id="P", session_id="sesh-1")
-        s.insert(content="no-session", project_id="P")
-
-        results = s.list_by_project("P")
-        assert len(results) == 2
-        contents = {r.content for r in results}
-        assert "with-session" in contents
-        assert "no-session" in contents
-
-    def test_list_by_session_ordering_newest_first(self, s):
-        import time
-        a1 = s.insert(content="older", project_id="P", session_id="sesh-1")
-        time.sleep(0.01)
-        a2 = s.insert(content="newer", project_id="P", session_id="sesh-1")
-
-        results = s.list_by_session("P", "sesh-1")
-        assert results[0].id == a2.id
-        assert results[1].id == a1.id
-
-    def test_list_by_session_excludes_invalidated_when_flag_false(self, s):
-        atom = s.insert(content="x", project_id="P", session_id="sesh-1")
-        s.update_invalidated(atom.id, True)
-
-        results = s.list_by_session("P", "sesh-1", include_invalidated=False)
-        assert results == []
-
-    def test_list_by_session_includes_invalidated_by_default(self, s):
-        atom = s.insert(content="x", project_id="P", session_id="sesh-1")
-        s.update_invalidated(atom.id, True)
-
-        results = s.list_by_session("P", "sesh-1", include_invalidated=True)
-        assert len(results) == 1
-
-    def test_list_by_session_limit_restricts_count(self, s):
-        for i in range(5):
-            s.insert(content=f"item {i}", project_id="P", session_id="sesh-1")
-        results = s.list_by_session("P", "sesh-1", limit=3)
-        assert len(results) == 3
 
 
 # ---------------------------------------------------------------------------

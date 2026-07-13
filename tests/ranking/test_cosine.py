@@ -41,3 +41,28 @@ def test_dot_384_dims():
     a = [1.0] + [0.0] * 383
     b = [0.0] * 383 + [1.0]
     assert dot(a, b) == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# TASK-053 — dim-mismatch must raise, never silently truncate (was: zip)
+# ---------------------------------------------------------------------------
+
+def test_dot_raises_value_error_on_length_mismatch():
+    """A shorter/longer vector must raise, not silently zip-truncate."""
+    a = [1.0] * 768
+    b = [1.0] * 384
+    with pytest.raises(ValueError, match=r"dim mismatch: 768 != 384"):
+        dot(a, b)
+
+
+def test_dot_raises_on_single_element_mismatch():
+    with pytest.raises(ValueError, match=r"dim mismatch: 3 != 2"):
+        dot([1.0, 0.0, 0.0], [1.0, 0.0])
+
+
+def test_dot_correct_product_on_equal_length_vectors():
+    """Regression guard: the ValueError check must not affect the correct
+    product when lengths DO match."""
+    a = [1.0, 2.0, 3.0]
+    b = [4.0, 5.0, 6.0]
+    assert dot(a, b) == pytest.approx(1.0 * 4.0 + 2.0 * 5.0 + 3.0 * 6.0)

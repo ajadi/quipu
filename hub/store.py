@@ -107,11 +107,15 @@ def read_since(
     conn: sqlite3.Connection,
     blinded_project_id: str,
     cursor: str | None,
-) -> tuple[list[dict], str]:
-    """Return entries after cursor and the next cursor.
+    limit: int,
+) -> tuple[list[dict], str, bool]:
+    """Return a page of entries after cursor, the next cursor, and has_more.
 
     offset = int(cursor) if cursor else 0.
-    next_cursor = str(max ingest_seq in result) if result else (cursor or "0").
+    Fetches up to `limit + 1` rows; if that yields more than `limit`, the page
+    is trimmed to `limit` rows and has_more=True (no second COUNT query needed).
+    next_cursor = str(max ingest_seq in the RETURNED page) if non-empty,
+    else (cursor or "0") — unchanged from prior behavior.
     payload re-encoded as base64 string for JSON wire.
     ingest_seq is never exposed in the returned entry dicts.
     """
@@ -122,8 +126,13 @@ def read_since(
         FROM hub_oplog
         WHERE blinded_project_id = ? AND ingest_seq > ?
         ORDER BY ingest_seq
+        LIMIT ?
     """
-    rows = conn.execute(sql, (blinded_project_id, offset)).fetchall()
+    rows = conn.execute(sql, (blinded_project_id, offset, limit + 1)).fetchall()
+
+    has_more = len(rows) > limit
+    if has_more:
+        rows = rows[:limit]
 
     entries: list[dict] = []
     last_seq: int | None = None
@@ -141,4 +150,4 @@ def read_since(
         })
 
     next_cursor = str(last_seq) if last_seq is not None else (cursor or "0")
-    return entries, next_cursor
+    return entries, next_cursor, has_more

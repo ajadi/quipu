@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from tests._semantic import TEST_EMBED_DIM
 
 from quipu.mcp.tools import dispatch
 
@@ -101,6 +102,28 @@ class TestQuipuWrite:
         assert "id" in data
         atom = tmp_store.get(data["id"])
         assert atom.project_id == "explicit_proj"
+
+    def test_write_with_corrupt_existing_embedding_returns_success(
+        self, tmp_store, project_id, fake_engine
+    ):
+        """A legacy corrupt embedding cannot turn conflict detection into an error."""
+        tmp_store.insert(
+            content="corrupt legacy record",
+            embedding=b"\x00\x01\x02",
+            project_id=project_id,
+        )
+
+        result = dispatch(
+            "quipu_write",
+            store=tmp_store,
+            default_project_id=project_id,
+            arguments={"content": "new record after corrupt legacy atom"},
+        )
+        data = _parse(result)
+
+        assert "error" not in data
+        assert data["id"]
+        assert data["conflicts"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -960,7 +983,7 @@ class TestContentLengthCap:
 
 def _make_vec_engine(vec):
     """Build a fake engine returning a specific pre-set L2-normalized vector."""
-    from quipu.embeddings.engine import _Engine, set_engine, EMBED_DIM
+    from quipu.embeddings.engine import _Engine, set_engine
 
     class _N:
         def __init__(self, name):
@@ -1001,13 +1024,13 @@ def _unit_vec_mcp(dim, index):
     return v
 
 
+@pytest.mark.usefixtures("semantic_model")
 class TestWriteConflictDetection:
     """MCP handler returns conflict signal on near-duplicate write (TASK-020)."""
 
     def test_no_conflict_first_write(self, tmp_store, project_id):
         """First write to an empty project → conflicts == []."""
-        from quipu.embeddings.engine import EMBED_DIM
-        v = _unit_vec_mcp(EMBED_DIM, 0)
+        v = _unit_vec_mcp(TEST_EMBED_DIM, 0)
         _make_vec_engine(v)
         result = dispatch(
             "quipu_write",
@@ -1020,8 +1043,7 @@ class TestWriteConflictDetection:
 
     def test_near_dup_returns_conflict(self, tmp_store, project_id):
         """Near-duplicate write returns non-empty conflicts with id, similarity, snippet."""
-        from quipu.embeddings.engine import EMBED_DIM
-        v = _unit_vec_mcp(EMBED_DIM, 0)
+        v = _unit_vec_mcp(TEST_EMBED_DIM, 0)
 
         # Write first atom
         _make_vec_engine(v)
@@ -1053,8 +1075,7 @@ class TestWriteConflictDetection:
 
     def test_near_dup_new_atom_persisted_active(self, tmp_store, project_id):
         """After near-dup write, the NEW atom is persisted and active."""
-        from quipu.embeddings.engine import EMBED_DIM
-        v = _unit_vec_mcp(EMBED_DIM, 0)
+        v = _unit_vec_mcp(TEST_EMBED_DIM, 0)
 
         _make_vec_engine(v)
         dispatch(
@@ -1078,8 +1099,7 @@ class TestWriteConflictDetection:
 
     def test_near_dup_old_atom_still_active(self, tmp_store, project_id):
         """After near-dup write, the OLD conflicting atom remains active (no auto-invalidation)."""
-        from quipu.embeddings.engine import EMBED_DIM
-        v = _unit_vec_mcp(EMBED_DIM, 0)
+        v = _unit_vec_mcp(TEST_EMBED_DIM, 0)
 
         _make_vec_engine(v)
         first_result = dispatch(
@@ -1103,8 +1123,7 @@ class TestWriteConflictDetection:
 
     def test_unscoped_no_conflicts(self, tmp_store):
         """project_id=None (unscoped) → conflicts == []."""
-        from quipu.embeddings.engine import EMBED_DIM
-        v = _unit_vec_mcp(EMBED_DIM, 0)
+        v = _unit_vec_mcp(TEST_EMBED_DIM, 0)
 
         _make_vec_engine(v)
         dispatch(
@@ -1131,8 +1150,7 @@ class TestWriteConflictDetection:
 
     def test_keep_both_no_second_call_old_stays_active(self, tmp_store, project_id):
         """AC4: write near-dup, no 2nd call → old atom still active, zero invalidate entries in store."""
-        from quipu.embeddings.engine import EMBED_DIM
-        v = _unit_vec_mcp(EMBED_DIM, 0)
+        v = _unit_vec_mcp(TEST_EMBED_DIM, 0)
 
         _make_vec_engine(v)
         first_result = dispatch(
@@ -1162,8 +1180,7 @@ class TestWriteConflictDetection:
 
     def test_supersede_path_invalidates_conflict(self, tmp_store, project_id):
         """AC3: write near-dup → quipu_invalidate(conflict_id) → old atom invalidated."""
-        from quipu.embeddings.engine import EMBED_DIM
-        v = _unit_vec_mcp(EMBED_DIM, 0)
+        v = _unit_vec_mcp(TEST_EMBED_DIM, 0)
 
         _make_vec_engine(v)
         first_result = dispatch(
@@ -1202,9 +1219,8 @@ class TestWriteConflictDetection:
 
     def test_orthogonal_write_no_conflict(self, tmp_store, project_id):
         """Orthogonal embeddings produce no conflicts."""
-        from quipu.embeddings.engine import EMBED_DIM
-        v1 = _unit_vec_mcp(EMBED_DIM, 0)
-        v2 = _unit_vec_mcp(EMBED_DIM, 1)
+        v1 = _unit_vec_mcp(TEST_EMBED_DIM, 0)
+        v2 = _unit_vec_mcp(TEST_EMBED_DIM, 1)
 
         _make_vec_engine(v1)
         dispatch(
@@ -1272,7 +1288,7 @@ class TestQuipuGc:
         assert data["stale_count"] >= 1
         assert len(data["stale"]) == data["stale_count"]
 
-    def test_gc_run_invalidates_stale(self, tmp_store, project_id):
+    def test_gc_apply_invalidates_stale(self, tmp_store, project_id):
         atom = tmp_store.insert(content="stale record", project_id=project_id)
         assert atom.invalidated is False
 
@@ -1281,7 +1297,7 @@ class TestQuipuGc:
             store=tmp_store,
             default_project_id=project_id,
             arguments={
-                "run": True,
+                "apply": True,
                 "min_age_days": 0,
                 "min_access_count": 999,
             },
@@ -1292,6 +1308,38 @@ class TestQuipuGc:
 
         fetched = tmp_store.get(atom.id)
         assert fetched.invalidated is True
+
+    def test_gc_apply_emits_post_invalidation_atom(self, tmp_store, project_id, monkeypatch):
+        atom = tmp_store.insert(content="stale record", project_id=project_id)
+        emitted = []
+        monkeypatch.setattr(
+            "quipu.oplog.producer.emit",
+            lambda store, **kwargs: emitted.append((store, kwargs)),
+        )
+
+        dispatch(
+            "quipu_gc",
+            store=tmp_store,
+            default_project_id=project_id,
+            arguments={"apply": True, "min_age_days": 0, "min_access_count": 999},
+        )
+
+        assert len(emitted) == 1
+        store, entry = emitted[0]
+        assert store is tmp_store
+        assert entry["op"] == "invalidate"
+        assert entry["project_id"] == project_id
+        assert entry["atom"].id == atom.id
+        assert entry["atom"].invalidated is True
+
+    def test_gc_rejects_non_boolean_apply(self, tmp_store, project_id):
+        result = dispatch(
+            "quipu_gc",
+            store=tmp_store,
+            default_project_id=project_id,
+            arguments={"apply": "true"},
+        )
+        assert "apply must be a boolean" in _parse(result)["error"]
 
     def test_gc_dry_run_does_not_invalidate(self, tmp_store, project_id):
         atom = tmp_store.insert(content="keep me", project_id=project_id)

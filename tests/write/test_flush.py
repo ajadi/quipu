@@ -6,6 +6,7 @@ import json
 import sys
 
 import pytest
+from tests._semantic import TEST_EMBED_DIM
 
 from quipu.storage.store import pack_embedding
 from quipu.write.flush import flush, ENRICHED_FLAG
@@ -24,8 +25,7 @@ def _unit_vec(dim: int, index: int) -> list[float]:
 
 def _insert_atom(store, content: str, project_id: str = "proj", enriched: bool = False):
     """Insert an atom with optional enriched flag in metadata."""
-    from quipu.embeddings.engine import EMBED_DIM
-    emb = pack_embedding(_unit_vec(EMBED_DIM, 0))
+    emb = pack_embedding(_unit_vec(TEST_EMBED_DIM, 0))
     metadata = {"enriched": enriched} if enriched else {}
     return store.insert(
         content=content,
@@ -61,6 +61,7 @@ def _canned_response(summary="Test summary", entities=None, keywords=None) -> di
 # Tests: ANTHROPIC_API_KEY absent
 # ---------------------------------------------------------------------------
 
+@pytest.mark.usefixtures("semantic_model")
 class TestFlushNoApiKey:
     def test_returns_skipped_true_when_key_absent(self, tmp_store, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -103,6 +104,7 @@ class TestFlushNoApiKey:
 # Tests: ANTHROPIC_API_KEY present — metadata writeback
 # ---------------------------------------------------------------------------
 
+@pytest.mark.usefixtures("semantic_model")
 class TestFlushWithApiKey:
     def test_enriches_unenriched_atom(self, tmp_store, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")

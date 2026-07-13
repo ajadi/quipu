@@ -6,6 +6,7 @@ init subparser parses mode choices; command is None → help + exit 1.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -190,6 +191,53 @@ class TestServeSubparser:
         stderr_lower = result.stderr.lower()
         assert "unrecognized arguments" not in stderr_lower
         assert "invalid choice" not in stderr_lower
+
+
+# ---------------------------------------------------------------------------
+# gc subparser
+# ---------------------------------------------------------------------------
+
+class TestGcSubparser:
+    def test_gc_uses_single_apply_flag(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "quipu", "gc", "--help"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "--apply" in result.stdout
+        assert "--dry-run" not in result.stdout
+        assert "--run" not in result.stdout
+
+    @pytest.mark.parametrize("command", ["gc", "receipts"])
+    def test_scope_help_requires_cli_argument_or_environment(self, command):
+        result = subprocess.run(
+            [sys.executable, "-m", "quipu", command, "--help"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        help_text = " ".join(result.stdout.split())
+        assert "required unless QUIPU_PROJECT_ID is set" in help_text
+        assert "derived from the project root" not in help_text
+
+    @pytest.mark.parametrize("command", ["gc", "receipts"])
+    def test_scope_commands_reject_absent_project_environment(self, command, tmp_path):
+        env = os.environ.copy()
+        env.pop("QUIPU_PROJECT_ID", None)
+        env.pop("QUIPU_PROJECT_ROOT", None)
+        result = subprocess.run(
+            [sys.executable, "-m", "quipu", command, "--db-path", str(tmp_path / "missing.db")],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+        assert result.returncode == 1
+        assert "project_id required" in result.stderr
+        assert not (tmp_path / "missing.db").exists()
 
 
 # ---------------------------------------------------------------------------

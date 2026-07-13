@@ -25,10 +25,17 @@ from quipu.vec._meta import (
 
 _logger = logging.getLogger(__name__)
 
-_VEC_TABLE_DDL = (
-    "CREATE VIRTUAL TABLE IF NOT EXISTS atoms_vec "
-    "USING vec0(embedding float[384])"
-)
+
+def _vec_table_ddl(dim: int) -> str:
+    """Return the atoms_vec DDL for a given embedding dimension.
+
+    ``dim`` originates from our own model registry (active_dim()), so
+    interpolating it as int(...) carries no injection risk.
+    """
+    return (
+        "CREATE VIRTUAL TABLE IF NOT EXISTS atoms_vec "
+        f"USING vec0(embedding float[{int(dim)}])"
+    )
 
 # Triggers keep atoms_vec in sync with atoms after the initial build.
 _TRIGGER_INSERT = """
@@ -84,6 +91,8 @@ def build(conn: sqlite3.Connection) -> None:
     - Single WAL transaction: readers not blocked; crash before commit
       leaves status='building' so next call re-runs idempotently.
     """
+    from quipu.models.cache import active_dim
+
     ensure_meta_table(conn)
 
     if is_build_complete(conn):
@@ -91,13 +100,15 @@ def build(conn: sqlite3.Connection) -> None:
 
     _logger.info("Building atoms_vec index…")
 
+    dim = active_dim()
+
     # Single transaction: WAL allows concurrent readers.
     with conn:
         # Create virtual table (idempotent).
-        conn.execute(_VEC_TABLE_DDL)
+        conn.execute(_vec_table_ddl(dim))
 
         # Mark building (idempotent upsert).
-        set_build_status(conn, "building", dim=384)
+        set_build_status(conn, "building", dim=dim)
 
         # Bulk-insert all existing embeddings — INSERT OR REPLACE handles
         # re-runs after a crash (idempotent).
@@ -116,7 +127,7 @@ def build(conn: sqlite3.Connection) -> None:
         conn.execute(_TRIGGER_DELETE)
 
         # Mark complete — only reachable on success.
-        set_build_status(conn, "complete", dim=384)
+        set_build_status(conn, "complete", dim=dim)
 
     _logger.info("atoms_vec index build complete.")
 

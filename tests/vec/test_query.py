@@ -66,6 +66,7 @@ def _load_ext(conn: sqlite3.Connection) -> None:
     conn.enable_load_extension(False)
 
 
+@pytest.mark.usefixtures("semantic_model")
 class TestKnn:
     def _build_index(self, conn):
         from quipu.vec._build import build

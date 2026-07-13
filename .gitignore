@@ -60,3 +60,5 @@ CLAUDE.local.md
 # tasks/
 # <<< framework-public-ignore
 spikes/s1-encrypted-sync/oplog.bin
+.claude/.turn-count
+.claude/control.json

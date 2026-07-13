@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import builtins
+
 import pytest
+from tests._semantic import TEST_EMBED_DIM
 
 from quipu.retrieval._search import search
 from quipu.storage.store import pack_embedding
-
-EMBED_DIM = 384
-
+from quipu.models.cache import active_model
 
 def _unit_vec(index: int) -> list[float]:
-    v = [0.0] * EMBED_DIM
+    v = [0.0] * TEST_EMBED_DIM
     v[index] = 1.0
     return v
 
@@ -35,6 +36,7 @@ def test_search_project_id_none_raises():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("tier", ["R0", "R1", "R2", "R3"])
+@pytest.mark.usefixtures("semantic_model")
 def test_all_tiers_run(tier, tmp_store, monkeypatch):
     monkeypatch.setattr("quipu.retrieval._search.embed", _fake_embed)
 
@@ -74,6 +76,7 @@ def test_r0_exact_match(tmp_store, monkeypatch):
     assert results[0].tier == "R0"
 
 
+@pytest.mark.usefixtures("semantic_model")
 def test_r1_cosine_order(tmp_store, monkeypatch):
     """R1 returns results ordered by descending cosine score."""
     # A is at index 0, B at index 5; query vec at index 0 → A wins
@@ -110,6 +113,7 @@ def test_r2_bm25_order(tmp_store, monkeypatch):
     assert all(r.tier == "R2" for r in results)
 
 
+@pytest.mark.usefixtures("semantic_model")
 def test_r3_fusion(tmp_store, monkeypatch):
     """R3 returns fused, deduplicated results ordered by combined score."""
     monkeypatch.setattr("quipu.retrieval._search.embed", _fake_embed)
@@ -130,6 +134,7 @@ def test_r3_fusion(tmp_store, monkeypatch):
     assert all(r.tier == "R3" for r in results)
 
 
+@pytest.mark.usefixtures("semantic_model")
 def test_top_k_respected(tmp_store, monkeypatch):
     """top_k is respected across all tiers."""
     monkeypatch.setattr("quipu.retrieval._search.embed", _fake_embed)
@@ -300,6 +305,7 @@ def test_search_sets_last_accessed(tmp_store, monkeypatch):
     fetched = tmp_store.get(atom.id)
     assert fetched.last_accessed is not None
 
+@pytest.mark.usefixtures("semantic_model")
 def test_access_count_increments_for_all_tiers(tmp_store, monkeypatch):
     monkeypatch.setattr("quipu.retrieval._search.embed", _fake_embed)
 
@@ -314,3 +320,58 @@ def test_access_count_increments_for_all_tiers(tmp_store, monkeypatch):
         _ = search(content, tier=tier, project_id="p", top_k=10, store=tmp_store)
         fetched = tmp_store.get(atom.id)
         assert fetched.access_count >= 1, f"tier {tier} did not increment access_count"
+
+
+# ---------------------------------------------------------------------------
+# TASK-064 — keyword-only retrieval
+# ---------------------------------------------------------------------------
+
+def test_keyword_only_r0_and_r2_do_not_import_embeddings(tmp_store, monkeypatch):
+    monkeypatch.setenv("QUIPU_EMBEDDING_MODEL", "none")
+    assert active_model() is None
+    atom = tmp_store.insert(content="zephyrquill exact marker", project_id="keyword")
+    real_import = builtins.__import__
+
+    def reject_embeddings(name, *args, **kwargs):
+        if name == "quipu.embeddings" or name.startswith("quipu.embeddings."):
+            raise AssertionError("R0/R2 search imported quipu.embeddings")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", reject_embeddings)
+    r0 = search(atom.content, tier="R0", project_id="keyword", store=tmp_store)
+    r2 = search("zephyrquill", tier="R2", project_id="keyword", store=tmp_store)
+
+    assert [r.atom.id for r in r0] == [atom.id]
+    assert atom.id in [r.atom.id for r in r2]
+
+
+@pytest.mark.parametrize("tier", ["R1", "R3"])
+def test_keyword_only_vector_tiers_fall_back_to_bm25_without_warning(
+    tier, tmp_store, monkeypatch, capsys
+):
+    monkeypatch.setenv("QUIPU_EMBEDDING_MODEL", "none")
+    assert active_model() is None
+    atom = tmp_store.insert(content="zephyrquill fallback marker", project_id="keyword")
+
+    results = search("zephyrquill", tier=tier, project_id="keyword", store=tmp_store)
+
+    assert atom.id in [r.atom.id for r in results]
+    assert all(r.tier == "R2" for r in results)
+    assert "WARNING" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("tier", ["R1", "R3"])
+def test_configured_model_failure_warns_then_falls_back_to_bm25(
+    tier, tmp_store, monkeypatch, capsys
+):
+    monkeypatch.setenv("QUIPU_EMBEDDING_MODEL", "bge-small-en-v1.5")
+    atom = tmp_store.insert(content="zephyrquill runtime failure marker", project_id="keyword")
+
+    def broken_embed(_query):
+        raise OSError("corrupt model")
+
+    monkeypatch.setattr("quipu.retrieval._search.embed", broken_embed)
+    results = search("zephyrquill", tier=tier, project_id="keyword", store=tmp_store)
+
+    assert atom.id in [r.atom.id for r in results]
+    assert "WARNING: embedding model unavailable" in capsys.readouterr().err

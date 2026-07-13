@@ -18,10 +18,33 @@ import sqlite3
 import struct
 
 from quipu.vec._gate import is_loaded
-from quipu.vec._meta import is_build_complete
+from quipu.vec._meta import get_build_dim, is_build_complete
 
-_EMBED_DIMS = 384
-_EMBED_FMT = f"<{_EMBED_DIMS}f"
+
+class VecDimMismatchError(RuntimeError):
+    """Raised when the active model's dim differs from the built index's dim."""
+
+
+def assert_dim_matches(conn: sqlite3.Connection) -> None:
+    """Raise VecDimMismatchError if the active dim differs from the built dim.
+
+    No-op when the build is incomplete or no dim was recorded (fresh/legacy
+    stores). A model change is expected to require a rebuild; this fails closed
+    with a clear message rather than silently truncating or corrupting.
+    """
+    from quipu.models.cache import active_dim
+
+    if not is_build_complete(conn):
+        return
+    stored = get_build_dim(conn)
+    if stored is None:
+        return
+    current = active_dim()
+    if stored != current:
+        raise VecDimMismatchError(
+            f"embedding model changed ({stored}d → {current}d); "
+            "re-init or rebuild the index (drop_index + rebuild)"
+        )
 
 
 def query_ready(conn: sqlite3.Connection) -> bool:
@@ -30,13 +53,21 @@ def query_ready(conn: sqlite3.Connection) -> bool:
     Checks both:
     1. sqlite-vec extension is live (vec_version() callable).
     2. ember_vec_meta.key='build' status == 'complete'.
+
+    Raises VecDimMismatchError (fail-closed) when the built index dim differs
+    from the active model's dim.
     """
-    return is_loaded(conn) and is_build_complete(conn)
+    if not (is_loaded(conn) and is_build_complete(conn)):
+        return False
+    assert_dim_matches(conn)
+    return True
 
 
 def _pack_query(query_vec: list[float]) -> bytes:
-    """Pack a 384-dim float list to LE bytes for sqlite-vec."""
-    return struct.pack(_EMBED_FMT, *query_vec)
+    """Pack a float list (active model's dim) to LE bytes for sqlite-vec."""
+    from quipu.models.cache import active_dim
+
+    return struct.pack(f"<{active_dim()}f", *query_vec)
 
 
 def knn(

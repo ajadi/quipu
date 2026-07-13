@@ -63,6 +63,23 @@ def set_build_status(
     )
 
 
+def get_build_dim(conn: sqlite3.Connection) -> int | None:
+    """Return the dim the 'build' row was recorded with, or None.
+
+    None when no build row exists yet or the dim column is NULL (legacy).
+    """
+    try:
+        row = conn.execute(
+            "SELECT dim FROM ember_vec_meta WHERE key = 'build'"
+        ).fetchone()
+    except sqlite3.OperationalError:
+        # Table doesn't exist yet.
+        return None
+    if not row or row[0] is None:
+        return None
+    return int(row[0])
+
+
 def is_build_complete(conn: sqlite3.Connection) -> bool:
     """Return True iff ember_vec_meta has key='build' with status='complete'."""
     return get_build_status(conn) == "complete"

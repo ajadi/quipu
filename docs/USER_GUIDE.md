@@ -11,10 +11,10 @@ pip install huggingface_hub    # required for automatic model download
 
 No git clone, no install scripts needed.
 
-### From source
+### From a local checkout
 
 ```bash
-git clone https://github.com/ajadi/quipu && cd quipu
+cd path/to/quipu
 pip install -e ".[test]"
 ```
 
@@ -40,15 +40,15 @@ and prints the exact `.mcp.json` snippet for your platform.
 
 ## Embedding models
 
-Quipu ships with 5 selectable ONNX embedding models. The model is downloaded
-**automatically on first use** (lazy download). No separate download step needed.
+Quipu ships with 4 selectable ONNX embedding models. After you select a model,
+it is downloaded **automatically on first use** (lazy download). No separate
+download step needed.
 
 ### Available models
 
 | Key | Size | HF repo | Gated |
 |-----|------|---------|-------|
-| `nomic-embed-v2` *(default)* | ~270 MB | `nomic-ai/nomic-embed-v2` | No |
-| `nomic-embed-text-v1.5` | ~270 MB | `nomic-ai/nomic-embed-text-v1.5` | No |
+| `nomic-embed-text-v1.5` *(recommended)* | ~1 GB | `nomic-ai/nomic-embed-text-v1.5` | No |
 | `bge-small-en-v1.5` | ~130 MB | `BAAI/bge-small-en-v1.5` | No |
 | `bge-m3` | ~580 MB | `BAAI/bge-m3` | No |
 | `embeddinggemma-300m` | ~1.2 GB | `google/embeddinggemma-300m` | **Yes** |
@@ -172,7 +172,7 @@ quipu mirror --project-id <id> [--output-dir memory] [--db-path PATH]
 quipu drain [--queue-path PATH] [--db-path PATH] [--project-id ID]
 quipu backfill [--db-path PATH] [--project-id ID]
 quipu receipts [--db-path PATH] [--project-id ID] [--limit N] [--format json|text]
-quipu gc [--db-path PATH] [--project-id ID] [--dry-run] [--run] [--min-age-days 90] [--min-access-count 3]
+quipu gc [--db-path PATH] [--project-id ID] [--apply] [--min-age-days 90] [--min-access-count 3]
 ```
 
 | Command | Purpose |
@@ -183,7 +183,7 @@ quipu gc [--db-path PATH] [--project-id ID] [--dry-run] [--run] [--min-age-days 
 | `drain` | Drain capture queue into the store. |
 | `backfill` | Re-emit pre-existing atoms into the oplog for sync (one-shot, idempotent). |
 | `receipts` | Export privacy-safe hashed/redacted oplog audit. |
-| `gc` | Garbage-collect stale, low-access atoms. Use `--dry-run` first (default). |
+| `gc` | Preview stale, low-access atoms; add `--apply` to soft-invalidate them. |
 
 ---
 
@@ -194,7 +194,7 @@ quipu gc [--db-path PATH] [--project-id ID] [--dry-run] [--run] [--min-age-days 
 | `QUIPU_MODE` | `project` or `global` | `project` |
 | `QUIPU_PROJECT_ROOT` | Project root for project-mode DB | `cwd` |
 | `QUIPU_DB_PATH` | Explicit DB path (overrides mode routing) | — |
-| `QUIPU_EMBEDDING_MODEL` | Active embedding model (`nomic-embed-v2`, `nomic-embed-text-v1.5`, `bge-small-en-v1.5`, `bge-m3`, `embeddinggemma-300m`) | `nomic-embed-v2` |
+| `QUIPU_EMBEDDING_MODEL` | Active embedding model (`nomic-embed-text-v1.5`, `bge-small-en-v1.5`, `bge-m3`, `embeddinggemma-300m`); `none` disables embeddings | unset (`none`) |
 | `QUIPU_MODEL_DIR` | Override ONNX model cache directory | `~/.quipu/models/<model>/` |
 | `QUIPU_INVALIDATION_THRESHOLD` | Cosine threshold for conflict detection (0–1] | `0.92` |
 | `ANTHROPIC_API_KEY` | Enables `quipu_flush` enrichment via Claude Haiku | — |
@@ -249,9 +249,9 @@ quipu init
 # 5. Tell your AI: "write this to Quipu: the deploy script is at scripts/deploy.sh"
 ```
 
-The first `quipu_write` or `quipu_search` will automatically download the
-embedding model (~270 MB for default `nomic-embed-v2`). This is a one-time
-download.
+After you select an embedding model, the first `quipu_write` or `quipu_search`
+will automatically download it (~1 GB for the recommended
+`nomic-embed-text-v1.5`). This is a one-time download.
 
 ---
 
@@ -264,7 +264,7 @@ pip install huggingface_hub
 
 ### Model download fails
 Check your internet connection. For gated models (`embeddinggemma-300m`), ensure
-you've run `huggingface-cli login`. Set `QUIPU_EMBEDDING_MODEL=nomic-embed-v2`
+you've run `huggingface-cli login`. Set `QUIPU_EMBEDDING_MODEL=nomic-embed-text-v1.5`
 for an ungated model.
 
 ### "No module named 'onnxruntime'"

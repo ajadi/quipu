@@ -1,54 +1,45 @@
-name: CI
+name: Publish to PyPI
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
+    tags: ["v*"]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     env:
-      # Preserve hermetic test behavior when TASK-056 enables embeddings.
       HF_HUB_OFFLINE: "1"
       QUIPU_EMBEDDING_MODEL: "bge-small-en-v1.5"
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[test]"
-
       - name: Run tests
-        # tests/embeddings is hermetic by default (TASK-061): its conftest
-        # blocks downloads unless a test explicitly opts into --run-network.
-        # sqlite-vec tests self-skip only when the optional extension is absent.
         run: python -m pytest -q
 
-  release-smoke:
-    # This intentionally downloads a real public model.  Keep it explicit so
-    # the normal Python-version matrix remains hermetic and fast.
-    if: github.event_name == 'workflow_dispatch'
+  publish:
+    needs: test
     runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - name: Build, install, and exercise the release wheel with a real model
+      - name: Build distribution
         run: |
           python -m pip install --upgrade pip build
-          bash scripts/release-smoke.sh
+          python -m build
+      - name: Publish distribution to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

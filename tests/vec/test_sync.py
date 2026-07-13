@@ -8,6 +8,7 @@ from __future__ import annotations
 import sqlite3
 
 import pytest
+from tests._semantic import TEST_EMBED_DIM
 
 sqlite_vec = pytest.importorskip("sqlite_vec")
 
@@ -16,12 +17,12 @@ from quipu.vec._meta import is_build_complete
 from quipu.storage.store import pack_embedding, unpack_embedding
 
 
-EMBED_DIM = 384
+pytestmark = pytest.mark.usefixtures("semantic_model")
 
 
 def _unit_vec(i: int) -> list[float]:
-    v = [0.0] * EMBED_DIM
-    v[i % EMBED_DIM] = 1.0
+    v = [0.0] * TEST_EMBED_DIM
+    v[i % TEST_EMBED_DIM] = 1.0
     return v
 
 

@@ -10,8 +10,8 @@ Local-first · single-file · zero-infra · no cloud
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![PyPI](https://img.shields.io/pypi/v/quipu-mcp?label=pypi)](https://pypi.org/project/quipu-mcp/)
 [![MCP](https://img.shields.io/badge/MCP-native-8A2BE2.svg)](https://modelcontextprotocol.io/)
+[![tests](https://img.shields.io/badge/tests-1020%20passing-brightgreen.svg)](#status)
 [![CI](https://github.com/ajadi/quipu/actions/workflows/ci.yml/badge.svg)](https://github.com/ajadi/quipu/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-957%20passing-brightgreen.svg)](#status)
 
 <img src="assets/demo.svg" alt="Quipu recalls a past decision in a new AI session" width="760">
 
@@ -44,7 +44,7 @@ Local-first · single-file · zero-infra · no cloud
 
 Quipu is the only one that is **local, single-file, MCP-native, zero-infra, and privately synced** at the same time.
 
-**10 MCP tools • 925 tests • MIT licensed • Python 3.10+**
+**13 MCP tools • 1020 tests • MIT licensed • Python 3.10+**
 
 > ¹ mem0 "no heavy infra" = managed SaaS — you run nothing, but your context goes to their cloud.
 
@@ -66,10 +66,10 @@ pip install huggingface_hub
 cd your-project && quipu init
 ```
 
-**Or install from source:**
+**Or install from a local checkout:**
 
 ```sh
-git clone https://github.com/ajadi/quipu && cd quipu
+cd path/to/quipu
 ./install.sh
 ```
 
@@ -105,7 +105,7 @@ single local SQLite file. On recall, Quipu ranks them with multi-tier retrieval
 (FTS5 BM25 + on-device cosine fusion) and serves them straight back over MCP.
 
 - **All local.** Memory lives in one SQLite file on your machine — nothing leaves it.
-- **On-device embeddings.** Selectable local embedding model (default: `nomic-embed-v2`) runs via ONNX; no embedding API calls.
+- **On-device embeddings.** Selectable local embedding model (recommended: `nomic-embed-text-v1.5`) runs via ONNX; no embedding API calls.
 - **Private by design.** Cross-machine sync is end-to-end encrypted — the relay sees only ciphertext. Your memories never leave your control in plaintext.
 
 ---
@@ -113,8 +113,8 @@ single local SQLite file. On recall, Quipu ranks them with multi-tier retrieval
 ## Status
 
 **✅ Works today (Phase 1–4)**
-- Local-first MCP memory server (`python -m quipu serve`) with **10 MCP tools**: write, search, get, list, invalidate, flush, stats, push, pull, prime, receipts
-- On-device embeddings via ONNX (default: `nomic-embed-v2`, selectable via `QUIPU_EMBEDDING_MODEL`; no network)
+- Local-first MCP memory server (`python -m quipu serve`) with **13 MCP tools**: write, search, get, list, invalidate, flush, stats, push, pull, prime, receipts, gc, graph
+- On-device embeddings via ONNX (recommended: `nomic-embed-text-v1.5`, selectable via `QUIPU_EMBEDDING_MODEL`; no network)
 - Single-file SQLite store, `project` and `global` modes
 - Multi-tier retrieval R0–R3 (exact, cosine, FTS5 BM25, fusion) with access-count boosting
 - Conflict detection on write — surfaces near-duplicate/contradicting memories (cosine similarity) so the caller adjudicates (supersede via `quipu_invalidate` or keep both), instead of silently invalidating
@@ -129,7 +129,7 @@ single local SQLite file. On recall, Quipu ranks them with multi-tier retrieval
 - **Autonomous session priming** — `quipu_prime` surfaces the most relevant prior memories at session start (never raises; best-effort)
 - **Explicit sync tools** — `quipu_push` and `quipu_pull` for on-demand hub sync (offline-safe)
 - **Privacy-safe audit** — `quipu receipts` CLI and `quipu_receipts` MCP tool export hashed/redacted oplog
-- **Garbage collection** — `quipu gc` prunes stale, low-access atoms (`--dry-run` safe)
+- **Garbage collection** — `quipu gc` previews stale, low-access atoms; `--apply` prunes them
 
 **📋 Planned**
 - Hosted zero-knowledge sync hub (managed option)
@@ -154,7 +154,7 @@ quipu [--version]
   drain [--queue-path PATH] [--db-path PATH] [--project-id ID]
   backfill [--db-path PATH] [--project-id ID]
   receipts [--db-path PATH] [--project-id ID] [--limit N] [--format json|text] [--op write|invalidate]
-  gc [--db-path PATH] [--project-id ID] [--dry-run] [--run] [--min-age-days 90] [--min-access-count 3]
+  gc [--db-path PATH] [--project-id ID] [--apply] [--min-age-days 90] [--min-access-count 3]
 ```
 
 - **`init`** — creates the store and writes `config.json`. Idempotent: re-running preserves `project_id` and `created`, refreshes `quipu_version` / `last_init`. Prints the exact `.mcp.json` snippet for your platform. `--mode server` initialises a server-mode store and config (`client_id` + `hub_url`) for hub sync; set `QUIPU_HUB_TOKEN` in the environment.
@@ -163,7 +163,7 @@ quipu [--version]
 - **`drain`** — drains the capture queue into the store (used by the capture loop).
 - **`backfill`** — re-emit pre-existing atoms into the oplog so they sync to the hub (one-shot, idempotent).
 - **`receipts`** — export a privacy-safe hashed/redacted audit of the oplog.
-- **`gc`** — garbage-collect stale, low-value atoms (those older than `--min-age-days` with fewer than `--min-access-count` accesses). Use `--dry-run` first.
+- **`gc`** — preview stale, low-value atoms (those older than `--min-age-days` with fewer than `--min-access-count` accesses); add `--apply` to soft-invalidate them.
 
 | Mode | DB location | config.json |
 |------|-------------|-------------|
@@ -181,7 +181,7 @@ quipu [--version]
 | `QUIPU_MODE` | `project` or `global` | `project` |
 | `QUIPU_PROJECT_ROOT` | Root directory for project-mode DB | `cwd` |
 | `QUIPU_DB_PATH` | Explicit DB path (overrides mode routing) | — |
-| `QUIPU_EMBEDDING_MODEL` | Active embedding model key (`nomic-embed-v2`, `nomic-embed-text-v1.5`, `bge-small-en-v1.5`, `bge-m3`, `embeddinggemma-300m`) | `nomic-embed-v2` |
+| `QUIPU_EMBEDDING_MODEL` | Active embedding model key (`nomic-embed-text-v1.5`, `bge-small-en-v1.5`, `bge-m3`, `embeddinggemma-300m`); `none` disables embeddings | unset (`none`) |
 | `QUIPU_MODEL_DIR` | Override for ONNX model cache directory | `~/.quipu/models/<active-model>/` |
 | `QUIPU_INVALIDATION_THRESHOLD` | Cosine threshold for write-time conflict detection (0–1] | `0.92` |
 | `ANTHROPIC_API_KEY` | Enables optional `quipu_flush` enrichment via Claude Haiku; absent ⇒ enrichment skipped | — |
@@ -211,26 +211,25 @@ One shared DB for all projects:
 <summary><strong>Model cache</strong></summary>
 
 ONNX weights are stored at `~/.quipu/models/<active-model>/` (overridable via
-`QUIPU_MODEL_DIR`). The model downloads **automatically on first use** — no
+`QUIPU_MODEL_DIR`). After you select a model, it downloads **automatically on first use** — no
 separate download step needed.
 
-**Selecting a model.** Set `QUIPU_EMBEDDING_MODEL` to one of the five supported
-keys before starting `quipu serve`. Unset or unknown value → falls back to the
-default.
+**Selecting a model.** Set `QUIPU_EMBEDDING_MODEL` to one of the four supported
+keys before starting `quipu serve`. Unset or `none` selects keyword-only mode;
+an unknown value raises an error.
 
 | Key | HF repo | Gated? |
 |-----|---------|--------|
-| `nomic-embed-v2` *(default)* | `nomic-ai/nomic-embed-v2` | No |
-| `nomic-embed-text-v1.5` | `nomic-ai/nomic-embed-text-v1.5` | No |
+| `nomic-embed-text-v1.5` *(recommended)* | `nomic-ai/nomic-embed-text-v1.5` | No |
 | `bge-small-en-v1.5` | `BAAI/bge-small-en-v1.5` | No |
 | `bge-m3` | `BAAI/bge-m3` | No |
 | `embeddinggemma-300m` | `google/embeddinggemma-300m` | Yes (see below) |
 
-**Default (ungated — no auth needed):**
+**Recommended (ungated — no auth needed):**
 
 ```sh
-huggingface-cli download nomic-ai/nomic-embed-v2 \
-    --local-dir ~/.quipu/models/nomic-embed-v2
+huggingface-cli download nomic-ai/nomic-embed-text-v1.5 \
+    --local-dir ~/.quipu/models/nomic-embed-text-v1.5
 ```
 
 **`embeddinggemma-300m` only (gated model):** requires a Hugging Face account
@@ -263,6 +262,8 @@ huggingface-cli download google/embeddinggemma-300m \
 | `quipu_pull` | Explicit pull from sync hub (best-effort; offline-safe). |
 | `quipu_prime` | Session-start auto-recall — surface the most relevant prior memories for context priming (never raises). |
 | `quipu_receipts` | Privacy-safe hashed/redacted oplog audit export. |
+| `quipu_gc` | Preview stale atoms; set `apply` to soft-invalidate them. |
+| `quipu_graph` | Traverse entity relationships from a record or search term. |
 
 </details>
 
@@ -338,7 +339,7 @@ On Windows the Python executable is `Scripts\python.exe`, not `bin/python`:
 
 **Model download**
 
-The default model (`nomic-embed-v2`) is ungated — no Hugging Face login required.
+The recommended model (`nomic-embed-text-v1.5`) is ungated — no Hugging Face login required.
 If you switch to `embeddinggemma-300m` via `QUIPU_EMBEDDING_MODEL`, a one-time
 license acceptance and `huggingface-cli login` are required. See the
 [Model cache](#reference) section above.

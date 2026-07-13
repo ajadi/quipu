@@ -13,15 +13,17 @@ from quipu.models.cache import (
     is_gated,
     model_dir,
     onnx_path,
+    onnx_path_candidates,
 )
 
 
 def _try_auto_download(path, target, model_key) -> None:
     """Attempt to auto-download the model via huggingface_hub.
 
-    Prints progress to stderr. Raises ModelNotFoundError on any failure
-    so the caller gets the same user-friendly message as if the file was
-    simply missing.
+    Prints progress to stderr. Raises ModelNotFoundError if huggingface_hub
+    is not installed (pip-install message must reach the caller verbatim).
+    Raises RuntimeError on any download failure so load_session's generic
+    except-Exception arm builds the richer "not found" / gated-login message.
     """
     try:
         import huggingface_hub  # noqa: F401
@@ -42,13 +44,17 @@ def _try_auto_download(path, target, model_key) -> None:
         snapshot_download(
             repo_id=hf_repo,
             local_dir=str(target),
+            allow_patterns=[
+                "*.onnx",
+                "*.onnx_data",
+                "onnx/*",
+                "*.json",
+                "*.txt",
+                "*.model",
+            ],
         )
     except Exception as exc:
-        raise ModelNotFoundError(
-            f"Auto-download of {model_key} failed: {exc}\n\n"
-            f"Download manually with:\n\n"
-            f"    {download_cmd(model_key)} --local-dir {target}\n"
-        )
+        raise RuntimeError(f"Auto-download of {model_key} failed: {exc}")
 
     print(f"[quipu] Model downloaded to {target}", file=sys.stderr)
 
@@ -85,6 +91,25 @@ def load_session():  # type: ignore[return]
                 f"ONNX model not found at: {path}\n"
                 f"Auto-download failed: {exc}\n"
                 f"Download with:\n\n    {cmd} --local-dir {target}\n"
+            )
+            if is_gated(model_key):
+                msg += (
+                    "\nThis model requires Hugging Face authentication.\n"
+                    "Log in first with:\n\n    huggingface-cli login\n"
+                )
+            raise ModelNotFoundError(msg)
+
+        # Re-resolve after download — the snapshot may place the weight at
+        # the root or in the onnx/ subdirectory depending on repo layout.
+        path = onnx_path()
+        if not path.exists():
+            root, nested = onnx_path_candidates()
+            cmd = download_cmd(model_key)
+            msg = (
+                f"ONNX model not found after download. Searched:\n"
+                f"    {root}\n"
+                f"    {nested}\n"
+                f"Download manually with:\n\n    {cmd} --local-dir {target}\n"
             )
             if is_gated(model_key):
                 msg += (

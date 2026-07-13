@@ -29,7 +29,13 @@ def cosine(a: list[float], b: list[float]) -> float:
 
     Returns:
         Dot product (== cosine similarity for unit vectors).
+
+    Raises:
+        ValueError: if a and b have different lengths (mirrors
+            quipu.ranking.cosine.dot — never silently truncate).
     """
+    if len(a) != len(b):
+        raise ValueError(f"dim mismatch: {len(a)} != {len(b)}")
     return sum(x * y for x, y in zip(a, b))
 
 
@@ -99,8 +105,16 @@ def find_superseded(
             continue
         if atom.embedding is None:
             continue
-        existing_vec = unpack_embedding(atom.embedding)
-        sim = cosine(new_vec, existing_vec)
+        try:
+            existing_vec = unpack_embedding(atom.embedding)
+            sim = cosine(new_vec, existing_vec)
+        except ValueError:
+            logger.warning(
+                "Skipping atom %s in find_superseded: bad/legacy embedding",
+                atom.id,
+                exc_info=True,
+            )
+            continue
         if sim >= threshold:
             superseded.append(atom.id)
 
@@ -138,8 +152,16 @@ def find_conflicts(
             continue
         if atom.embedding is None:
             continue
-        existing_vec = unpack_embedding(atom.embedding)
-        sim = cosine(new_vec, existing_vec)
+        try:
+            existing_vec = unpack_embedding(atom.embedding)
+            sim = cosine(new_vec, existing_vec)
+        except ValueError:
+            logger.warning(
+                "Skipping atom %s in find_conflicts: bad/legacy embedding",
+                atom.id,
+                exc_info=True,
+            )
+            continue
         if sim >= threshold:
             content = atom.content
             snippet = content[:_SNIPPET_LEN] + ("…" if len(content) > _SNIPPET_LEN else "")

@@ -35,13 +35,16 @@ fi
 
 # Model picker helpers
 _resolve_model() {
-    # $1 = numeric choice (1-5); sets CHOSEN_MODEL and CHOSEN_HF_REPO
-    case "$1" in
-        1) CHOSEN_MODEL="nomic-embed-v2";        CHOSEN_HF_REPO="nomic-ai/nomic-embed-v2" ;;
-        2) CHOSEN_MODEL="nomic-embed-text-v1.5"; CHOSEN_HF_REPO="nomic-ai/nomic-embed-text-v1.5" ;;
-        3) CHOSEN_MODEL="bge-small-en-v1.5";     CHOSEN_HF_REPO="BAAI/bge-small-en-v1.5" ;;
-        4) CHOSEN_MODEL="bge-m3";                CHOSEN_HF_REPO="BAAI/bge-m3" ;;
-        5) CHOSEN_MODEL="embeddinggemma-300m";   CHOSEN_HF_REPO="google/embeddinggemma-300m" ;;
+    # $1 = numeric choice (1-4) or 'none' (case-insensitive, keyword-only);
+    # sets CHOSEN_MODEL and CHOSEN_HF_REPO. Returns 1 for empty/invalid input
+    # (caller must re-prompt — no silent default is assumed here).
+    _norm=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    case "$_norm" in
+        1) CHOSEN_MODEL="nomic-embed-text-v1.5"; CHOSEN_HF_REPO="nomic-ai/nomic-embed-text-v1.5" ;;
+        2) CHOSEN_MODEL="bge-small-en-v1.5";     CHOSEN_HF_REPO="BAAI/bge-small-en-v1.5" ;;
+        3) CHOSEN_MODEL="bge-m3";                CHOSEN_HF_REPO="BAAI/bge-m3" ;;
+        4) CHOSEN_MODEL="embeddinggemma-300m";   CHOSEN_HF_REPO="google/embeddinggemma-300m" ;;
+        none) CHOSEN_MODEL="none";               CHOSEN_HF_REPO="" ;;
         *) return 1 ;;
     esac
     return 0
@@ -50,79 +53,62 @@ _resolve_model() {
 _show_menu() {
     echo ""
     echo "==> Select embedding model:"
-    echo "    1) nomic-embed-v2          (nomic-ai/nomic-embed-v2)         [recommended]"
-    echo "    2) nomic-embed-text-v1.5   (nomic-ai/nomic-embed-text-v1.5)"
-    echo "    3) bge-small-en-v1.5       (BAAI/bge-small-en-v1.5)"
-    echo "    4) bge-m3                  (BAAI/bge-m3)"
-    echo "    5) embeddinggemma-300m     (google/embeddinggemma-300m)       [gated]"
+    echo "    1) nomic-embed-text-v1.5   (nomic-ai/nomic-embed-text-v1.5)  [recommended]"
+    echo "       dim=768, ~270MB, English-focused, balanced quality/speed, open"
+    echo "    2) bge-small-en-v1.5       (BAAI/bge-small-en-v1.5)"
+    echo "       dim=384, ~130MB, English-only, fastest/smallest, open"
+    echo "    3) bge-m3                  (BAAI/bge-m3)"
+    echo "       dim=1024, ~2.2GB, multilingual, highest quality/slower, open"
+    echo "    4) embeddinggemma-300m     (google/embeddinggemma-300m)       [gated]"
+    echo "       dim=768, ~300MB, multilingual, high quality, GATED (HF login)"
+    echo "    none) keyword-only BM25 - no download, reduced semantic recall"
     echo ""
     if [ -n "$SAVED_MODEL" ]; then
         echo "    Current saved model: $SAVED_MODEL"
     fi
 }
 
-# Determine default number from saved model
-_default_num="1"
-if [ -n "$SAVED_MODEL" ]; then
-    case "$SAVED_MODEL" in
-        nomic-embed-v2)        _default_num="1" ;;
-        nomic-embed-text-v1.5) _default_num="2" ;;
-        bge-small-en-v1.5)     _default_num="3" ;;
-        bge-m3)                _default_num="4" ;;
-        embeddinggemma-300m)   _default_num="5" ;;
-        *)                     _default_num="1" ;;
-    esac
-fi
-
 CHOSEN_MODEL=""
 CHOSEN_HF_REPO=""
 
 if [ -t 0 ]; then
-    # Interactive stdin — show menu
+    # Interactive stdin — loop until a valid choice. Empty/invalid input
+    # re-prompts; there is no auto-accepted default. 'none' (keyword-only)
+    # is always a valid answer and resolves the loop immediately.
     _show_menu
-    printf "    Enter number [default: %s]: " "$_default_num"
-    read -r _input || true
-    if [ -z "$_input" ]; then
-        _choice="$_default_num"
-    else
-        _choice="$_input"
-    fi
-
-    if ! _resolve_model "$_choice"; then
-        # Out of range — re-prompt once
-        echo "    Invalid choice '$_choice'. Please enter a number 1-5."
-        _show_menu
-        printf "    Enter number [default: %s]: " "$_default_num"
-        read -r _input2 || true
-        if [ -z "$_input2" ]; then
-            _choice2="$_default_num"
-        else
-            _choice2="$_input2"
+    while true; do
+        printf "    Enter number (1-4), or 'none' for keyword-only (no embedding model): "
+        if ! read -r _input; then
+            echo "" >&2
+            echo "ERROR: no input received (stdin closed); cannot proceed without a model choice." >&2
+            exit 1
         fi
-        if ! _resolve_model "$_choice2"; then
-            # Fall back to default
-            _resolve_model "$_default_num"
+        if _resolve_model "$_input"; then
+            break
         fi
-    fi
+        echo "    Invalid choice '$_input'. Please enter a number 1-4, or 'none'."
+    done
 else
-    # Non-interactive stdin — use saved or default
-    if [ -n "$SAVED_MODEL" ]; then
-        case "$SAVED_MODEL" in
-            nomic-embed-v2)        CHOSEN_MODEL="nomic-embed-v2";        CHOSEN_HF_REPO="nomic-ai/nomic-embed-v2" ;;
-            nomic-embed-text-v1.5) CHOSEN_MODEL="nomic-embed-text-v1.5"; CHOSEN_HF_REPO="nomic-ai/nomic-embed-text-v1.5" ;;
-            bge-small-en-v1.5)     CHOSEN_MODEL="bge-small-en-v1.5";     CHOSEN_HF_REPO="BAAI/bge-small-en-v1.5" ;;
-            bge-m3)                CHOSEN_MODEL="bge-m3";                CHOSEN_HF_REPO="BAAI/bge-m3" ;;
-            embeddinggemma-300m)   CHOSEN_MODEL="embeddinggemma-300m";   CHOSEN_HF_REPO="google/embeddinggemma-300m" ;;
-            *)
-                CHOSEN_MODEL="nomic-embed-v2"
-                CHOSEN_HF_REPO="nomic-ai/nomic-embed-v2"
-                ;;
-        esac
+    # Non-interactive stdin — honor a previously saved choice only. Never
+    # silently substitute a specific model when unset/unrecognized: resolve
+    # cleanly to keyword-only mode instead (informational, exit 0).
+    case "$SAVED_MODEL" in
+        nomic-embed-text-v1.5) CHOSEN_MODEL="nomic-embed-text-v1.5"; CHOSEN_HF_REPO="nomic-ai/nomic-embed-text-v1.5" ;;
+        bge-small-en-v1.5)     CHOSEN_MODEL="bge-small-en-v1.5";     CHOSEN_HF_REPO="BAAI/bge-small-en-v1.5" ;;
+        bge-m3)                CHOSEN_MODEL="bge-m3";                CHOSEN_HF_REPO="BAAI/bge-m3" ;;
+        embeddinggemma-300m)   CHOSEN_MODEL="embeddinggemma-300m";   CHOSEN_HF_REPO="google/embeddinggemma-300m" ;;
+        *)
+            CHOSEN_MODEL="none"
+            CHOSEN_HF_REPO=""
+            ;;
+    esac
+
+    if [ "$CHOSEN_MODEL" = "none" ]; then
+        echo "==> No embedding model configured — running in keyword-only mode (QUIPU_EMBEDDING_MODEL=none)."
+        echo "    To use semantic search instead, set QUIPU_EMBEDDING_MODEL=<key> (e.g. nomic-embed-text-v1.5) before installing."
     else
-        CHOSEN_MODEL="nomic-embed-v2"
-        CHOSEN_HF_REPO="nomic-ai/nomic-embed-v2"
+        echo "Using model: $CHOSEN_MODEL"
     fi
-    echo "Using model: $CHOSEN_MODEL"
 fi
 
 MODEL_DIR="$QUIPU_HOME/models/$CHOSEN_MODEL"
@@ -135,6 +121,14 @@ if [ -f "$CONFIG_FILE" ]; then
 else
     mkdir -p "$(dirname "$CONFIG_FILE")"
     printf 'MODEL=%s\n' "$CHOSEN_MODEL" > "$CONFIG_FILE"
+fi
+
+# Test hook — used by tests/scripts/test_install_model_select.py to exercise
+# the model-selection loop above without running the full install (venv/pip/
+# network). Not used by real installs.
+if [ "${QUIPU_TEST_MODEL_SELECT_ONLY:-0}" = "1" ]; then
+    echo "CHOSEN_MODEL=$CHOSEN_MODEL"
+    exit 0
 fi
 
 # Step 2 — repo root is parent of scripts/
@@ -193,7 +187,9 @@ else
 fi
 
 # Step 6 — fetch chosen model if absent
-if [ -f "$MODEL_DIR/model.onnx" ]; then
+if [ "$CHOSEN_MODEL" = "none" ]; then
+    echo "==> Keyword-only mode (QUIPU_EMBEDDING_MODEL=none) — no model to download."
+elif [ -f "$MODEL_DIR/model.onnx" ]; then
     echo "==> Model already present at $MODEL_DIR (skipping download)"
 else
     echo "==> Fetching $CHOSEN_MODEL to $MODEL_DIR"

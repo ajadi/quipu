@@ -6,6 +6,7 @@ import logging
 import os
 
 import pytest
+from tests._semantic import TEST_EMBED_DIM
 
 from quipu.sync.client import sync_now, _set_last_sync_status, reset_last_sync_status
 from quipu.sync.errors import SyncUnavailableError, SyncProtocolError
@@ -205,7 +206,7 @@ class TestOkPath:
 import pytest
 
 from quipu.storage import store as open_store
-from quipu.embeddings.engine import _reset, set_engine, EMBED_DIM, _Engine
+from quipu.embeddings.engine import _reset, set_engine, _Engine
 
 
 class _FakeTokenizerEncoding:
@@ -245,7 +246,7 @@ class _FakeSession:
     def run(self, output_names, feeds):
         import numpy as np
         n = feeds["input_ids"].shape[0]
-        arr = np.full((n, EMBED_DIM), self._value, dtype=np.float32)
+        arr = np.full((n, TEST_EMBED_DIM), self._value, dtype=np.float32)
         return [arr]
 
 
@@ -256,7 +257,7 @@ def reset_embedding_engine():
 
 
 @pytest.fixture()
-def fake_engine():
+def fake_engine(semantic_model):
     engine = _Engine(session=_FakeSession(value=1.0), tokenizer=_FakeTokenizer())
     set_engine(engine)
     return engine

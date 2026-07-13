@@ -11,13 +11,14 @@ import sys
 from pathlib import Path
 
 import pytest
+from tests._semantic import TEST_EMBED_DIM
 
 # Insert repo root so `import quipu` works without editable install.
 _repo_root = Path(__file__).resolve().parents[2]
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from quipu.embeddings.engine import _reset, set_engine, EMBED_DIM, _Engine
+from quipu.embeddings.engine import _reset, set_engine, _Engine
 from quipu.storage import store as open_store
 
 
@@ -70,7 +71,7 @@ class _FakeSession:
     def run(self, output_names, feeds):
         import numpy as np
         n = feeds["input_ids"].shape[0]
-        arr = np.full((n, EMBED_DIM), self._value, dtype=np.float32)
+        arr = np.full((n, TEST_EMBED_DIM), self._value, dtype=np.float32)
         return [arr]
 
 
@@ -98,7 +99,7 @@ def reset_embedding_engine():
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def fake_engine():
+def fake_engine(semantic_model):
     """Inject a fake engine that returns L2-normalized uniform vectors."""
     engine = _make_fake_engine(value=1.0)
     set_engine(engine)

@@ -21,8 +21,16 @@ from quipu.storage.store import pack_embedding
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _unit_vec(index: int, dim: int = 384) -> list[float]:
-    """Return a unit vector with 1.0 at position *index*."""
+def _unit_vec(index: int, dim: int | None = None) -> list[float]:
+    """Return a unit vector with 1.0 at position *index*.
+
+    dim defaults to the active model's dim (resolved at call time) so
+    seeded fixtures stay consistent with pack_embedding/unpack_embedding,
+    which also derive dim from active_dim() rather than a hardcoded 384.
+    """
+    if dim is None:
+        from quipu.models.cache import active_dim
+        dim = active_dim()
     v = [0.0] * dim
     v[index] = 1.0
     return v
@@ -41,7 +49,7 @@ def tmp_conn(tmp_path):
 
 
 @pytest.fixture()
-def seeded_conn(tmp_conn):
+def seeded_conn(tmp_conn, semantic_model):
     """A tmp_conn pre-seeded with 5 atoms with embeddings in project 'p'."""
     for i in range(5):
         tmp_conn.execute(

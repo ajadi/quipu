@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from tests._semantic import TEST_EMBED_DIM
 
 _repo_root = Path(__file__).resolve().parents[2]
 if str(_repo_root) not in sys.path:
@@ -69,8 +70,6 @@ def _count_rows(store) -> int:
 # Fake engine (no ONNX needed)
 # ---------------------------------------------------------------------------
 
-EMBED_DIM = 384
-
 class _N:
     def __init__(self, name):
         self.name = name
@@ -84,7 +83,7 @@ class _FakeSession:
     def run(self, output_names, feeds):
         import numpy as np
         n = feeds["input_ids"].shape[0]
-        return [np.ones((n, EMBED_DIM), dtype=np.float32)]
+        return [np.ones((n, TEST_EMBED_DIM), dtype=np.float32)]
 
 class _FakeTokenizer:
     def encode_batch(self, texts):
@@ -112,7 +111,7 @@ def _install_unit_vec_engine(dim_index: int = 0):
             return [_N("sentence_embedding")]
         def run(self, output_names, feeds):
             n = feeds["input_ids"].shape[0]
-            arr = np.zeros((n, EMBED_DIM), dtype=np.float32)
+            arr = np.zeros((n, TEST_EMBED_DIM), dtype=np.float32)
             arr[:, dim_index] = 1.0
             return [arr]
 
@@ -147,7 +146,7 @@ def tmp_store(tmp_path):
 
 
 @pytest.fixture()
-def active_env(monkeypatch, tmp_path):
+def active_env(semantic_model, monkeypatch, tmp_path):
     """Set env vars so the producer thinks sync is active."""
     monkeypatch.setenv("QUIPU_KEY", TEST_KEY_B64)
     monkeypatch.setenv("QUIPU_HUB_URL", "http://hub-fake")

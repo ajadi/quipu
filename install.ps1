@@ -1,4 +1,4 @@
-# install.ps1 — idempotent Windows installer for Quipu.
+# install.ps1 - idempotent Windows installer for Quipu.
 #
 # Steps:
 #   1. Resolve QUIPU_HOME (default %USERPROFILE%\.quipu) and venv path.
@@ -21,13 +21,13 @@ param(
     [string]$QuipuHome = ""
 )
 
-# Step 1 — resolve QUIPU_HOME
+# Step 1 - resolve QUIPU_HOME
 if ([string]::IsNullOrEmpty($QuipuHome)) {
     $QuipuHome = if ($env:QUIPU_HOME) { $env:QUIPU_HOME } else { Join-Path $env:USERPROFILE ".quipu" }
 }
 $Venv = Join-Path $QuipuHome "venv"
 
-# Step 1b — read saved model from config
+# Step 1b - read saved model from config
 $ConfigFile = Join-Path $QuipuHome "config"
 $SavedModel = ""
 if (Test-Path $ConfigFile) {
@@ -36,64 +36,79 @@ if (Test-Path $ConfigFile) {
 
 # Model table
 $ModelTable = @{
-    1 = @{ Key = "nomic-embed-v2";        Repo = "nomic-ai/nomic-embed-v2" }
-    2 = @{ Key = "nomic-embed-text-v1.5"; Repo = "nomic-ai/nomic-embed-text-v1.5" }
-    3 = @{ Key = "bge-small-en-v1.5";     Repo = "BAAI/bge-small-en-v1.5" }
-    4 = @{ Key = "bge-m3";                Repo = "BAAI/bge-m3" }
-    5 = @{ Key = "embeddinggemma-300m";   Repo = "google/embeddinggemma-300m" }
+    1 = @{ Key = "nomic-embed-text-v1.5"; Repo = "nomic-ai/nomic-embed-text-v1.5" }
+    2 = @{ Key = "bge-small-en-v1.5";     Repo = "BAAI/bge-small-en-v1.5" }
+    3 = @{ Key = "bge-m3";                Repo = "BAAI/bge-m3" }
+    4 = @{ Key = "embeddinggemma-300m";   Repo = "google/embeddinggemma-300m" }
 }
 
-$DefaultNum = 1
-if ($SavedModel) {
-    foreach ($n in $ModelTable.Keys) {
-        if ($ModelTable[$n].Key -eq $SavedModel) { $DefaultNum = $n; break }
-    }
-}
-
-function Resolve-ModelChoice([string]$raw, [int]$defaultNum) {
+function Resolve-ModelChoice([string]$raw) {
+    # Returns 1-4 for a valid numeric choice, "none" for keyword-only
+    # (case-insensitive), or $null for empty/invalid input (caller re-prompts
+    # - no default is auto-accepted).
+    if ([string]::IsNullOrEmpty($raw)) { return $null }
+    if ($raw.Trim().ToLowerInvariant() -eq "none") { return "none" }
     $n = 0
-    if ([string]::IsNullOrEmpty($raw)) { $n = $defaultNum }
-    elseif ([int]::TryParse($raw.Trim(), [ref]$n)) { } else { $n = -1 }
-    if ($n -ge 1 -and $n -le 5) { return $n }
-    return -1
+    if ([int]::TryParse($raw.Trim(), [ref]$n) -and $n -ge 1 -and $n -le 4) { return $n }
+    return $null
 }
 
 $ChosenModel = ""
 $ChosenHfRepo = ""
 
 if ([System.Console]::IsInputRedirected) {
-    # Non-interactive — use saved or default
+    # Non-interactive / piped stdin - honor a previously saved choice only.
+    # Never silently substitute a specific model when unset/unrecognized:
+    # resolve cleanly to keyword-only mode instead (informational, exit 0).
     if ($SavedModel -and ($ModelTable.Values | Where-Object { $_.Key -eq $SavedModel })) {
         $ChosenModel   = $SavedModel
         $ChosenHfRepo  = ($ModelTable.Values | Where-Object { $_.Key -eq $SavedModel } | Select-Object -First 1).Repo
     } else {
-        $ChosenModel  = $ModelTable[$DefaultNum].Key
-        $ChosenHfRepo = $ModelTable[$DefaultNum].Repo
+        $ChosenModel  = "none"
+        $ChosenHfRepo = ""
     }
-    Write-Host "Using model: $ChosenModel"
+
+    if ($ChosenModel -eq "none") {
+        Write-Host "==> No embedding model configured - running in keyword-only mode (QUIPU_EMBEDDING_MODEL=none)."
+        Write-Host "    To use semantic search instead, set QUIPU_EMBEDDING_MODEL=<key> (e.g. nomic-embed-text-v1.5) before installing."
+    } else {
+        Write-Host "Using model: $ChosenModel"
+    }
 } else {
-    # Interactive — show picker
+    # Interactive - show picker, loop until a valid choice. Empty/invalid
+    # input re-prompts; there is no auto-accepted default. 'none'
+    # (keyword-only) is always a valid answer and resolves the loop
+    # immediately.
     Write-Host ""
     Write-Host "==> Select embedding model:"
     Write-Host "    1) nomic-embed-text-v1.5   (nomic-ai/nomic-embed-text-v1.5)  [recommended]"
-    Write-Host "    2) nomic-embed-text-v1.5   (nomic-ai/nomic-embed-text-v1.5)"
-    Write-Host "    3) bge-small-en-v1.5       (BAAI/bge-small-en-v1.5)"
-    Write-Host "    4) bge-m3                  (BAAI/bge-m3)"
-    Write-Host "    5) embeddinggemma-300m     (google/embeddinggemma-300m)       [gated]"
+    Write-Host "       dim=768, ~270MB, English-focused, balanced quality/speed, open"
+    Write-Host "    2) bge-small-en-v1.5       (BAAI/bge-small-en-v1.5)"
+    Write-Host "       dim=384, ~130MB, English-only, fastest/smallest, open"
+    Write-Host "    3) bge-m3                  (BAAI/bge-m3)"
+    Write-Host "       dim=1024, ~2.2GB, multilingual, highest quality/slower, open"
+    Write-Host "    4) embeddinggemma-300m     (google/embeddinggemma-300m)       [gated]"
+    Write-Host "       dim=768, ~300MB, multilingual, high quality, GATED (HF login)"
+    Write-Host "    none) keyword-only BM25 - no download, reduced semantic recall"
     Write-Host ""
     if ($SavedModel) { Write-Host "    Current saved model: $SavedModel" }
 
-    $raw1 = Read-Host "    Enter number [default: $DefaultNum]"
-    $choice = Resolve-ModelChoice $raw1 $DefaultNum
-    if ($choice -eq -1) {
-        Write-Host "    Invalid choice '$raw1'. Please enter a number 1-5."
-        $raw2 = Read-Host "    Enter number [default: $DefaultNum]"
-        $choice = Resolve-ModelChoice $raw2 $DefaultNum
-        if ($choice -eq -1) { $choice = $DefaultNum }
+    $choice = $null
+    while ($null -eq $choice) {
+        $raw = Read-Host "    Enter number (1-4), or 'none' for keyword-only (no embedding model)"
+        $choice = Resolve-ModelChoice $raw
+        if ($null -eq $choice) {
+            Write-Host "    Invalid choice '$raw'. Please enter a number 1-4, or 'none'."
+        }
     }
 
-    $ChosenModel  = $ModelTable[$choice].Key
-    $ChosenHfRepo = $ModelTable[$choice].Repo
+    if ($choice -eq "none") {
+        $ChosenModel  = "none"
+        $ChosenHfRepo = ""
+    } else {
+        $ChosenModel  = $ModelTable[$choice].Key
+        $ChosenHfRepo = $ModelTable[$choice].Repo
+    }
 }
 
 $ModelDir = Join-Path $QuipuHome "models\$ChosenModel"
@@ -110,7 +125,15 @@ if (Test-Path $ConfigFile) {
     "MODEL=$ChosenModel" | Set-Content $ConfigFile
 }
 
-# Step 2 — repo root = directory of this script
+# Test hook - used by tests/scripts/test_install_model_select.py to exercise
+# the model-selection logic above without running the full install (venv/pip/
+# network). Not used by real installs.
+if ($env:QUIPU_TEST_MODEL_SELECT_ONLY -eq "1") {
+    Write-Host "CHOSEN_MODEL=$ChosenModel"
+    exit 0
+}
+
+# Step 2 - repo root = directory of this script
 $RepoRoot = $PSScriptRoot
 
 Write-Host "==> Quipu install"
@@ -118,7 +141,7 @@ Write-Host "    QUIPU_HOME : $QuipuHome"
 Write-Host "    VENV       : $Venv"
 Write-Host "    REPO_ROOT  : $RepoRoot"
 
-# Step 3 — create venv if absent
+# Step 3 - create venv if absent
 if (Test-Path $Venv) {
     Write-Host "==> Venv already present at $Venv"
 } else {
@@ -137,7 +160,7 @@ if (-not (Test-Path $PY)) {
     exit 1
 }
 
-# Step 4 — upgrade pip and install quipu (editable)
+# Step 4 - upgrade pip and install quipu (editable)
 Write-Host "==> Upgrading pip"
 & $PY -m pip install --upgrade pip
 
@@ -157,7 +180,7 @@ if ($LASTEXITCODE -ne 0) {
     }
 }
 
-# Step 5 — ensure huggingface_hub in venv (best-effort)
+# Step 5 - ensure huggingface_hub in venv (best-effort)
 Write-Host "==> Checking huggingface_hub"
 & $PY -c "import huggingface_hub" 2>$null
 if ($LASTEXITCODE -ne 0) {
@@ -170,9 +193,11 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "    huggingface_hub already present"
 }
 
-# Step 6 — fetch chosen model if absent
+# Step 6 - fetch chosen model if absent
 $ModelOnnx = Join-Path $ModelDir "model.onnx"
-if (Test-Path $ModelOnnx) {
+if ($ChosenModel -eq "none") {
+    Write-Host "==> Keyword-only mode (QUIPU_EMBEDDING_MODEL=none) - no model to download."
+} elseif (Test-Path $ModelOnnx) {
     Write-Host "==> Model already present at $ModelDir (skipping download)"
 } else {
     Write-Host "==> Fetching $ChosenModel to $ModelDir"
@@ -218,7 +243,7 @@ if (Test-Path $ModelOnnx) {
     }
 }
 
-# Step 7 — validate
+# Step 7 - validate
 Write-Host "==> Validating install"
 & $PY -m quipu --version
 if ($LASTEXITCODE -ne 0) {
@@ -226,7 +251,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# Step 8 — print .mcp.json snippet
+# Step 8 - print .mcp.json snippet
 $AbsVenvPy = (Resolve-Path $PY).Path
 $AbsVenvPyJson = $AbsVenvPy -replace '\\','/'
 

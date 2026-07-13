@@ -14,16 +14,21 @@ Vec routing (R1 only):
 
 from __future__ import annotations
 
+import sqlite3
 from typing import TYPE_CHECKING
 
 from quipu.ranking.result import SearchResult
 from quipu.retrieval.tiers import tier_r0, tier_r1, tier_r2, tier_r3
+from quipu.models.cache import active_model
 
 if TYPE_CHECKING:
     from quipu.storage.store import Store
 
-# Import embed at module level so tests can monkeypatch it.
-from quipu.embeddings import embed
+def embed(text: str) -> list[float]:
+    """Lazily load the embedding API while retaining the test patch seam."""
+    from quipu.embeddings import embed as _embed
+
+    return _embed(text)
 
 _VALID_TIERS = frozenset({"R0", "R1", "R2", "R3"})
 
@@ -62,8 +67,11 @@ def search(
               to those where atom.tags overlaps with requested tags
               (case-insensitive). Atoms with NULL tags are excluded.
         graph_expand: When True, expands top search results by adding atoms
-                      connected via KG edges (BFS with graph_depth). Default
-                      False (preserves byte-identical pre-graph behavior).
+                      connected via KG edges (BFS with graph_depth), then
+                      dedups by atom id, re-sorts by score, and slices to
+                      top_k — this does not preserve the original result
+                      order/content byte-for-byte. Default False (preserves
+                      pre-graph behavior unchanged).
         graph_depth: BFS depth for graph_expand (default 1, min 1).
 
     Returns:
@@ -94,6 +102,7 @@ def search(
 
     try:
         atoms = store.list_by_project(project_id, include_invalidated=False)
+        vec_candidate_count = len(atoms)
 
         # Session filter: restrict candidates BEFORE tiering when session_id is set.
         if session_id is not None:
@@ -115,6 +124,9 @@ def search(
         if tier == "R0":
             results = tier_r0(atoms, query, top_k)
 
+        elif tier == "R1" and active_model() is None:
+            results = tier_r2(atoms, query, top_k)
+
         elif tier == "R1":
             try:
                 query_vec = embed(query)
@@ -127,12 +139,32 @@ def search(
                 # Vec routing: use KNN index when available, else pure-Python.
                 from quipu.vec import query_ready, knn as vec_knn
                 if query_ready(store._conn):
-                    rowid_scores = vec_knn(store._conn, query_vec, project_id, top_k)
-                    results = _results_from_rowids(store, rowid_scores, "R1", project_id=project_id)
+                    has_filters = session_id is not None or tags is not None
+                    # knn() buffers at most 10,000 rows.  A filtered candidate
+                    # set larger than that cannot be represented faithfully by
+                    # post-filtering vec results, so preserve exact tier_r1
+                    # semantics for this rare oversized filtered search.
+                    if has_filters and vec_candidate_count > 10_000:
+                        results = tier_r1(atoms, query_vec, top_k)
+                    else:
+                        # KNN is project-scoped but cannot express session/tag
+                        # predicates. Request enough project candidates to apply
+                        # the already-established Python filter below.
+                        vec_top_k = max(top_k, vec_candidate_count) if has_filters else top_k
+                        rowid_scores = vec_knn(store._conn, query_vec, project_id, vec_top_k)
+                        results = _results_from_rowids(
+                            store, rowid_scores, "R1", project_id=project_id
+                        )
+                        if has_filters:
+                            candidate_ids = {atom.id for atom in atoms}
+                            results = [r for r in results if r.atom.id in candidate_ids][:top_k]
                 else:
                     results = tier_r1(atoms, query_vec, top_k)
 
         elif tier == "R2":
+            results = tier_r2(atoms, query, top_k)
+
+        elif tier == "R3" and active_model() is None:
             results = tier_r2(atoms, query, top_k)
 
         else:
@@ -172,9 +204,14 @@ def search(
                     seen[aid] = r
             results = sorted(seen.values(), key=lambda r: r.score, reverse=True)[:top_k]
 
-        # Increment access_count on every atom returned to the caller
-        for r in results:
-            store.increment_access(r.atom.id)
+        # Increment access_count on every atom returned to the caller.
+        # Single batched UPDATE + commit; best-effort — a read-only or
+        # locked DB must never turn a read into a hard failure.
+        if results:
+            try:
+                store.increment_access_batch([r.atom.id for r in results])
+            except sqlite3.OperationalError:
+                pass
 
         return results
 

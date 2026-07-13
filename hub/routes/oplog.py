@@ -5,6 +5,8 @@ Enforces:
 - POST: each entry.blinded_project_id must match path bpid -> 400
 - POST: max entries per batch (HUB_MAX_ENTRIES) -> 413
 - GET: parse_cursor defensive validation -> 400 on bad cursor; 200+empty on out-of-range
+- GET: response is paginated to cfg.max_pull entries per page; "has_more": true
+  signals the client to pull again with the returned "cursor" as the next since=
 - payload stored/returned verbatim (base64 wire -> bytes BLOB -> base64 wire)
 - ingest_seq NEVER exposed in responses
 """
@@ -76,13 +78,16 @@ async def pull_entries(
     request: Request,
     since: str | None = None,
 ):
-    """Return entries since cursor. Empty result if cursor is ahead of store."""
+    """Return a page of entries since cursor. Empty result if cursor is ahead of store."""
     validate_blinded_project_id(blinded_project_id)
 
+    cfg = request.app.state.config
     conn = request.app.state.db_conn
 
     cursor = parse_cursor(since)
-    entries, next_cursor = read_since(conn, blinded_project_id, cursor)
+    entries, next_cursor, has_more = read_since(
+        conn, blinded_project_id, cursor, cfg.max_pull
+    )
 
     # Set audit metadata
     byte_count = sum(
@@ -91,4 +96,4 @@ async def pull_entries(
     request.state.audit_entry_count = len(entries)
     request.state.audit_byte_count = byte_count
 
-    return {"entries": entries, "cursor": next_cursor}
+    return {"entries": entries, "cursor": next_cursor, "has_more": has_more}

@@ -122,7 +122,7 @@ def main() -> None:
         "--project-id",
         default=None,
         dest="project_id",
-        help="Project identifier (default: derived from the project root).",
+        help="Project identifier (required unless QUIPU_PROJECT_ID is set).",
     )
     receipts_p.add_argument(
         "--limit",
@@ -160,21 +160,13 @@ def main() -> None:
         "--project-id",
         default=None,
         dest="project_id",
-        help="Project identifier (default: from config or QUIPU_PROJECT_ID).",
+        help="Project identifier (required unless QUIPU_PROJECT_ID is set).",
     )
     gc_p.add_argument(
-        "--dry-run",
-        action="store_true",
-        default=True,
-        dest="dry_run",
-        help="List stale candidates without taking action (default).",
-    )
-    gc_p.add_argument(
-        "--run",
+        "--apply",
         action="store_true",
         default=False,
-        dest="run_flag",
-        help="Soft-invalidate stale atoms (reversible).",
+        help="Soft-invalidate stale atoms (reversible; default is dry-run).",
     )
     gc_p.add_argument(
         "--min-age-days",
@@ -209,7 +201,7 @@ def main() -> None:
     elif args.command == "receipts":
         sys.exit(cmd_receipts(args.db_path, args.project_id, args.limit, args.fmt, args.op_filter))
     elif args.command == "gc":
-        sys.exit(cmd_gc(args.db_path, args.project_id, args.dry_run, args.run_flag, args.min_age_days, args.min_access_count))
+        sys.exit(cmd_gc(args.db_path, args.project_id, args.apply, args.min_age_days, args.min_access_count))
 
 
 if __name__ == "__main__":

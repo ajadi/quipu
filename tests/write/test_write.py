@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import builtins
+import json
 import math
 
 import pytest
+from tests._semantic import TEST_EMBED_DIM
 
-from quipu.embeddings.engine import set_engine, EMBED_DIM, _Engine
+from quipu.embeddings.engine import set_engine, _Engine
+from quipu.models.cache import active_model
 from quipu.storage.store import pack_embedding, unpack_embedding
 from quipu.write.pipeline import write
 from tests.write.conftest import get_flush_module
@@ -90,7 +94,7 @@ class TestWriteBasic:
         atom = tmp_store.get(atom_id)
         assert atom.embedding is not None
         vec = unpack_embedding(atom.embedding)
-        assert len(vec) == EMBED_DIM
+        assert len(vec) == TEST_EMBED_DIM
 
     def test_embedding_is_normalized(self, fake_engine, tmp_store):
         atom_id = write("hello world", store=tmp_store)
@@ -147,13 +151,14 @@ class TestWriteBasic:
 # Tests: auto-invalidation
 # ---------------------------------------------------------------------------
 
+@pytest.mark.usefixtures("semantic_model")
 class TestWriteAutoInvalidation:
     def test_near_duplicate_no_longer_auto_invalidated(self, tmp_store):
         """Writing a near-duplicate to same project no longer silently invalidates the older one.
 
         write() detects conflicts at the MCP layer; write() itself never mutates existing atoms.
         """
-        v = _unit_vec(EMBED_DIM, 0)
+        v = _unit_vec(TEST_EMBED_DIM, 0)
 
         # First write: insert atom with unit vec along dim 0
         _inject_vec_engine(v)
@@ -171,7 +176,7 @@ class TestWriteAutoInvalidation:
 
     def test_no_invalidation_without_project_id(self, tmp_store):
         """Without a project_id, no invalidation scan occurs."""
-        v = _unit_vec(EMBED_DIM, 0)
+        v = _unit_vec(TEST_EMBED_DIM, 0)
 
         _inject_vec_engine(v)
         old_id = write("first content", store=tmp_store)  # no project_id
@@ -184,7 +189,7 @@ class TestWriteAutoInvalidation:
 
     def test_no_cross_project_invalidation(self, tmp_store):
         """Atoms in different projects are not invalidated by each other."""
-        v = _unit_vec(EMBED_DIM, 0)
+        v = _unit_vec(TEST_EMBED_DIM, 0)
 
         _inject_vec_engine(v)
         atom_a = write("content A", project_id="proj_a", store=tmp_store)
@@ -197,8 +202,8 @@ class TestWriteAutoInvalidation:
 
     def test_unrelated_atom_not_invalidated(self, tmp_store):
         """Orthogonal vectors in same project do not trigger invalidation."""
-        v_old = _unit_vec(EMBED_DIM, 1)
-        v_new = _unit_vec(EMBED_DIM, 2)
+        v_old = _unit_vec(TEST_EMBED_DIM, 1)
+        v_new = _unit_vec(TEST_EMBED_DIM, 2)
 
         _inject_vec_engine(v_old)
         old_id = write("old content", project_id="proj", store=tmp_store)
@@ -265,6 +270,16 @@ class TestWriteTags:
         fetched = tmp_store.get(atom_id)
         assert fetched.tags == atom.tags
 
+    def test_write_tags_normalize_keyword_case_before_dedup(self, fake_engine, tmp_store, monkeypatch):
+        monkeypatch.setattr(
+            "quipu.extraction.extract_local",
+            lambda content: {"entities": ["Python"], "keywords": ["PYTHON", "Data"]},
+        )
+
+        atom_id = write("case-normalized tags", store=tmp_store)
+
+        assert tmp_store.get(atom_id).tags == ["python", "data"]
+
 
 # ---------------------------------------------------------------------------
 # Tests: no Haiku/network during write
@@ -297,3 +312,57 @@ class TestWriteNoNetwork:
 
         write("some content", store=tmp_store)
         assert calls == []
+
+
+# ---------------------------------------------------------------------------
+# TASK-064 — keyword-only writes
+# ---------------------------------------------------------------------------
+
+class TestKeywordOnlyWrite:
+    def test_write_stores_null_embedding_without_importing_embeddings(self, tmp_store, monkeypatch):
+        monkeypatch.setenv("QUIPU_EMBEDDING_MODEL", "none")
+        assert active_model() is None
+        real_import = builtins.__import__
+
+        def reject_embeddings(name, *args, **kwargs):
+            if name == "quipu.embeddings" or name.startswith("quipu.embeddings."):
+                raise AssertionError("keyword-only write imported quipu.embeddings")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", reject_embeddings)
+        atom_id = write("keyword-only persistence marker", project_id="keyword", store=tmp_store)
+
+        assert tmp_store.get(atom_id).embedding is None
+
+    def test_mcp_write_search_and_prime_round_trip_keyword_only(self, tmp_store, monkeypatch):
+        monkeypatch.setenv("QUIPU_EMBEDDING_MODEL", "none")
+        assert active_model() is None
+        from quipu.mcp.tools import dispatch
+
+        content = "zephyrquill distinctive keyword-only memory"
+        write_result = dispatch(
+            "quipu_write",
+            store=tmp_store,
+            default_project_id="keyword",
+            arguments={"content": content},
+        )
+        written_id = json.loads(write_result[0].text)["id"]
+        assert tmp_store.get(written_id).embedding is None
+
+        search_result = dispatch(
+            "quipu_search",
+            store=tmp_store,
+            default_project_id="keyword",
+            arguments={"query": "zephyrquill", "tier": "R3"},
+        )
+        search_ids = [r["id"] for r in json.loads(search_result[0].text)["results"]]
+        assert written_id in search_ids
+
+        prime_result = dispatch(
+            "quipu_prime",
+            store=tmp_store,
+            default_project_id="keyword",
+            arguments={"topic": "zephyrquill"},
+        )
+        prime_ids = [r["id"] for r in json.loads(prime_result[0].text)["results"]]
+        assert written_id in prime_ids

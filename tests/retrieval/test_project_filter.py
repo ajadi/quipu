@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import pytest
+from tests._semantic import TEST_EMBED_DIM
 
 from quipu.retrieval._search import search
 from quipu.storage.store import pack_embedding
-
-EMBED_DIM = 384
-
-
 def _unit_vec(index: int) -> list[float]:
-    v = [0.0] * EMBED_DIM
+    v = [0.0] * TEST_EMBED_DIM
     v[index] = 1.0
     return v
 
@@ -21,7 +18,7 @@ def _fake_embed(text: str) -> list[float]:
 
 
 @pytest.fixture()
-def seeded_store(tmp_store):
+def seeded_store(tmp_store, semantic_model):
     """Store with atoms in two projects."""
     tmp_store.insert(
         content="project one content python",

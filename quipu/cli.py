@@ -172,29 +172,31 @@ def cmd_backfill(
 def cmd_gc(
     db_path: Optional[str],
     project_id: Optional[str],
-    dry_run: bool,
-    run_flag: bool,
+    apply: bool,
     min_age_days: int,
     min_access_count: int,
 ) -> int:
-    """Implement ``quipu gc [--project-id ...] [--db-path ...] [--dry-run] [--run]``.
+    """Implement ``quipu gc [--project-id ...] [--db-path ...] [--apply]``.
 
-    Soft-invalidates stale low-value atoms. ``--run`` is required to execute;
+    Soft-invalidates stale low-value atoms. ``--apply`` is required to execute;
     without it (default: dry-run) only lists candidates.
     """
-    from quipu.config import get_project_id
     from quipu.storage import store as open_store
 
-    if run_flag:
-        dry_run = False
+    pid = project_id or os.environ.get("QUIPU_PROJECT_ID") or None
+    if pid is None:
+        print(
+            "quipu gc: error: project_id required "
+            "(pass --project-id or set QUIPU_PROJECT_ID)",
+            file=sys.stderr,
+        )
+        return 1
+
+    dry_run = not apply
 
     s = None
     try:
         s = open_store(db_path or None)
-        pid = project_id or get_project_id()
-        if pid is None:
-            print("quipu gc: error: project_id required (pass --project-id or set QUIPU_PROJECT_ID)", file=sys.stderr)
-            return 1
         stale = s.list_stale(
             project_id=pid,
             min_age_days=min_age_days,
@@ -202,9 +204,16 @@ def cmd_gc(
         )
         invalidated = 0
         if not dry_run:
+            from quipu.oplog.producer import emit
+
             for atom in stale:
                 s.update_invalidated(atom.id, True)
                 invalidated += 1
+                # Use the post-update atom so the producer records its bumped
+                # updated_at timestamp through the shared AAD/codec boundary.
+                updated_atom = s.get(atom.id)
+                if updated_atom is not None:
+                    emit(s, op="invalidate", atom=updated_atom, project_id=pid)
 
         if dry_run:
             print(f"quipu gc: dry-run — {len(stale)} stale candidates")
@@ -239,13 +248,19 @@ def cmd_receipts(
     """
     import hashlib
 
-    from quipu.config import get_project_id
     from quipu.keystore._backend import get_or_derive_key
     from quipu.storage import store as open_store
     from quipu.sync._aad import aad_for
     from quipu.sync.oplog_store import OplogStore
 
-    pid = project_id or get_project_id()
+    pid = project_id or os.environ.get("QUIPU_PROJECT_ID") or None
+    if pid is None:
+        print(
+            "quipu receipts: error: project_id required "
+            "(pass --project-id or set QUIPU_PROJECT_ID)",
+            file=sys.stderr,
+        )
+        return 1
 
     s = None
     try:

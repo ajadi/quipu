@@ -42,6 +42,9 @@ class Config:
         )
         # Max entries per POST batch before 413
         self.max_entries: int = int(os.environ.get("HUB_MAX_ENTRIES", "1000"))
+        # Max entries returned per GET /oplog pull (page size); has_more=True
+        # in the response signals the client to pull again with the new cursor.
+        self.max_pull: int = int(os.environ.get("HUB_MAX_PULL", "500"))
         # Max decoded payload bytes per entry before 422 (default 1 MB)
         self.max_payload_bytes: int = int(
             os.environ.get("HUB_MAX_PAYLOAD_BYTES", str(1024 * 1024))

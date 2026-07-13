@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from hub.config import Config
 from hub.main import create_app
+from hub.middleware.ratelimit import RateLimitMiddleware
 from hub.tests.conftest import BPID, BPID2, VALID_TOKEN, make_entry
 
 TOKEN2 = "second-token-xyz789"
@@ -29,6 +30,7 @@ def tight_client(tmp_path):
     cfg.rate_window = 3600
     cfg.max_body_bytes = 10 * 1024 * 1024
     cfg.max_entries = 1000
+    cfg.max_pull = 500
     cfg.tls_cert = None
     cfg.tls_key = None
 
@@ -87,3 +89,64 @@ def test_different_token_same_bpid_is_separate_bucket(tight_client):
     # TOKEN2 + same BPID is independent
     r2 = tight_client.get(f"/oplog/{BPID}", headers=_auth(TOKEN2))
     assert r2.status_code == 200
+
+
+def test_bucket_cache_is_bounded_for_sustained_distinct_keys():
+    """Active-window capacity bounds state when every request has a distinct key."""
+    middleware = RateLimitMiddleware(object(), rate_limit=2, rate_window=3600, max_buckets=3)
+
+    for index in range(3):
+        assert middleware._bucket_for(("token", f"project-{index}"), now=float(index))
+
+    assert len(middleware._buckets) == 3
+    for index in range(3, 20):
+        assert middleware._bucket_for(("token", f"project-{index}"), now=float(index)) is None
+    assert len(middleware._buckets) == 3
+
+
+def test_bucket_cache_evicts_idle_windows():
+    """Idle buckets are removed once their rate-limit window has elapsed."""
+    middleware = RateLimitMiddleware(object(), rate_limit=2, rate_window=60, max_buckets=3)
+    stale_key = ("token", "stale-project")
+
+    middleware._bucket_for(stale_key, now=0)
+    middleware._bucket_for(("token", "active-project"), now=60)
+
+    assert stale_key not in middleware._buckets
+
+
+def test_active_rate_limited_bucket_survives_distinct_key_churn():
+    """Capacity pressure cannot reset an active fixed-window rate limit."""
+    middleware = RateLimitMiddleware(object(), rate_limit=2, rate_window=60, max_buckets=2)
+    key = ("token", "limited-project")
+    bucket = middleware._bucket_for(key, now=0)
+    assert bucket is not None
+    bucket.count = 2
+
+    assert middleware._bucket_for(("token", "other-project"), now=1) is not None
+    for index in range(10):
+        assert middleware._bucket_for(("token", f"churn-{index}"), now=2) is None
+
+    assert middleware._bucket_for(key, now=3) is bucket
+    assert bucket.count == 2
+
+
+def test_expiry_cleanup_pops_only_due_buckets(monkeypatch):
+    """A lookup removes the heap head, not a full cache sweep."""
+    middleware = RateLimitMiddleware(object(), rate_limit=2, rate_window=60, max_buckets=3)
+    for index in range(3):
+        assert middleware._bucket_for(("token", f"project-{index}"), now=float(index))
+
+    calls = 0
+    original_pop = __import__("hub.middleware.ratelimit", fromlist=["heappop"]).heappop
+
+    def counting_pop(heap):
+        nonlocal calls
+        calls += 1
+        return original_pop(heap)
+
+    monkeypatch.setattr("hub.middleware.ratelimit.heappop", counting_pop)
+    assert middleware._bucket_for(("token", "new-project"), now=60)
+
+    assert calls == 1
+    assert len(middleware._buckets) == 3

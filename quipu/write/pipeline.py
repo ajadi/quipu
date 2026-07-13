@@ -49,9 +49,8 @@ def write(
     Returns:
         The new atom's ID string.
     """
-    from quipu.embeddings import embed
+    from quipu.models.cache import active_model
     from quipu.storage import store as open_store
-    from quipu.storage.store import pack_embedding
     from quipu.extraction import extract_local
 
     own_store = store is None
@@ -59,11 +58,14 @@ def write(
         store = open_store()
 
     try:
-        # 1. Embed
-        vec = embed(content)
+        # 1-2. Skip the embedding engine entirely in keyword-only mode.
+        if active_model() is None:
+            embedding_bytes = None
+        else:
+            from quipu.embeddings import embed
+            from quipu.storage.store import pack_embedding
 
-        # 2. Pack embedding
-        embedding_bytes = pack_embedding(vec)
+            embedding_bytes = pack_embedding(embed(content))
 
         # 3. Local extraction
         extracted = extract_local(content)
@@ -72,7 +74,8 @@ def write(
         entities_lower = [e.lower() for e in extracted["entities"]]
         combined: list[str] = []
         seen: set[str] = set()
-        for item in entities_lower + extracted["keywords"]:
+        keywords_lower = [k.lower() for k in extracted["keywords"]]
+        for item in entities_lower + keywords_lower:
             if item not in seen:
                 seen.add(item)
                 combined.append(item)

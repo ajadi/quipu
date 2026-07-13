@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from tests._semantic import TEST_EMBED_DIM
 
 _repo_root = Path(__file__).resolve().parents[2]
 if str(_repo_root) not in sys.path:
@@ -20,9 +21,9 @@ from quipu.behavior.prime import prime
 
 
 @pytest.fixture()
-def fake_engine():
+def fake_engine(semantic_model):
     """Inject fake embedding engine (no ONNX)."""
-    from quipu.embeddings.engine import _reset, set_engine, EMBED_DIM, _Engine
+    from quipu.embeddings.engine import _reset, set_engine, _Engine
 
     class _FakeTok:
         class _Enc:
@@ -51,7 +52,7 @@ def fake_engine():
         def run(self, output_names, feeds):
             import numpy as np
             n = feeds["input_ids"].shape[0]
-            return [np.ones((n, EMBED_DIM), dtype=np.float32)]
+            return [np.ones((n, TEST_EMBED_DIM), dtype=np.float32)]
 
     engine = _Engine(session=_FakeSess(), tokenizer=_FakeTok())
     set_engine(engine)

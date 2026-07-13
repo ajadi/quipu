@@ -14,6 +14,7 @@ from typing import Any
 from mcp.types import TextContent, Tool
 
 from quipu.storage import Store
+from quipu.storage.store import _atom_to_dict
 from quipu.write import flush, write
 
 logger = logging.getLogger(__name__)
@@ -26,28 +27,6 @@ logger = logging.getLogger(__name__)
 
 class _ToolError(Exception):
     """Validation / project_id-missing errors — captured by dispatch."""
-
-
-# ---------------------------------------------------------------------------
-# atom → dict helper (embedding NEVER serialized)
-# ---------------------------------------------------------------------------
-
-
-def _atom_to_dict(atom: Any) -> dict:
-    return {
-        "id": atom.id,
-        "content": atom.content,
-        "project_id": atom.project_id,
-        "type": atom.type,
-        "scope": atom.scope,
-        "metadata": atom.metadata,
-        "refs": atom.refs,
-        "invalidated": atom.invalidated,
-        "created_at": atom.created_at,
-        "updated_at": atom.updated_at,
-        "session_id": atom.session_id,
-        "tags": atom.tags,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -425,11 +404,10 @@ def _handle_quipu_gc(
             "project_id is required for quipu_gc — set project_id arg or QUIPU_PROJECT_ID env"
         )
 
-    dry_run = bool(arguments.get("dry_run", True))
-    run_flag = bool(arguments.get("run", False))
-
-    if run_flag:
-        dry_run = False
+    apply = arguments.get("apply", False)
+    if not isinstance(apply, bool):
+        raise _ToolError("apply must be a boolean")
+    dry_run = not apply
 
     min_age_days = arguments.get("min_age_days", 90)
     if not isinstance(min_age_days, int) or isinstance(min_age_days, bool) or min_age_days < 0:
@@ -447,9 +425,16 @@ def _handle_quipu_gc(
 
     invalidated = 0
     if not dry_run:
+        from quipu.oplog.producer import emit
+
         for atom in stale:
             store.update_invalidated(atom.id, True)
             invalidated += 1
+            # Re-fetch so the invalidate entry carries the trigger-updated
+            # timestamp, matching quipu_invalidate's sync contract.
+            updated_atom = store.get(atom.id)
+            if updated_atom is not None:
+                emit(store, op="invalidate", atom=updated_atom, project_id=project_id)
 
     return {
         "dry_run": dry_run,
@@ -810,8 +795,8 @@ TOOLS: list[Tool] = [
         name="quipu_gc",
         description=(
             "Garbage collect stale low-value atoms. "
-            "By default (dry_run=true), lists candidates without taking action. "
-            "Set run=true to soft-invalidate (reversible) matching atoms. "
+            "By default, lists candidates without taking action. "
+            "Set apply=true to soft-invalidate (reversible) matching atoms. "
             "Stale = non-invalidated atoms older than min_age_days with access_count < min_access_count."
         ),
         inputSchema={
@@ -821,14 +806,9 @@ TOOLS: list[Tool] = [
                     "type": "string",
                     "description": "Project identifier (defaults to QUIPU_PROJECT_ID env).",
                 },
-                "dry_run": {
+                "apply": {
                     "type": "boolean",
-                    "description": "List stale atoms without invalidating (default true).",
-                    "default": True,
-                },
-                "run": {
-                    "type": "boolean",
-                    "description": "Set to true to soft-invalidate stale atoms. Overrides dry_run.",
+                    "description": "Soft-invalidate stale atoms (default false; dry-run).",
                     "default": False,
                 },
                 "min_age_days": {
