@@ -76,6 +76,29 @@ def _install_fake_embed_engine() -> None:  # pragma: no cover — test-hook path
     set_engine(_Engine(session=_FakeSess(), tokenizer=_FakeTok()))
 
 
+def _warmup_embedding_engine() -> None:  # pragma: no cover
+    """Pre-load embedding engine on server startup if embeddings are enabled.
+
+    This runs once when the MCP server starts, so the embedding model is
+    cached in memory for the lifetime of the process. Subsequent tool calls
+    that use embeddings skip the load cost. No-op if QUIPU_EMBEDDING_MODEL=none.
+    """
+    from quipu.embeddings.engine import embed
+    from quipu.models.cache import active_model
+
+    model = active_model()
+    if model == "none":
+        logger.debug("Embeddings disabled (model=none); skipping warmup")
+        return
+
+    try:
+        logger.info(f"Pre-loading embedding model ({model}) on server startup...")
+        embed("")  # Trigger load of model; empty string → fast inference
+        logger.info(f"✓ Embedding model ({model}) loaded and cached")
+    except Exception as e:
+        logger.warning(f"Embedding warmup failed (non-fatal): {e}")
+
+
 def build_server(store: Store, default_project_id: str | None) -> Server:
     """Build and return a configured MCP Server instance.
 
@@ -151,6 +174,9 @@ async def run_stdio(
                 sync_now(default_project_id, store=store, directions=("pull",))
         except Exception:
             logger.warning("run_stdio: session-start pull failed", exc_info=True)
+
+    # Pre-warm embedding engine if enabled (no-op if disabled)
+    _warmup_embedding_engine()
 
     try:
         srv = build_server(store, default_project_id)

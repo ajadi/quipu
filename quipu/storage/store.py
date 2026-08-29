@@ -10,6 +10,8 @@ from typing import Any
 
 # ISO-8601 UTC format accepted by insert(created_at=...)
 _ISO8601_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
+MAX_GRAPH_DEPTH = 10
+MAX_GRAPH_TRIPLE_NEIGHBOURS = 32
 
 
 # ---------------------------------------------------------------------------
@@ -333,6 +335,19 @@ class Store:
         metadata: "dict | None" = None,
     ) -> dict:
         """Insert a typed edge between two atoms. Returns a dict with the row fields."""
+        if project_id is not None:
+            endpoint_rows = self._conn.execute(
+                "SELECT id, project_id FROM atoms WHERE id IN (?, ?)",
+                (from_atom_id, to_atom_id),
+            ).fetchall()
+            endpoints = {row["id"]: row["project_id"] for row in endpoint_rows}
+            if (
+                endpoints.get(from_atom_id) != project_id
+                or endpoints.get(to_atom_id) != project_id
+            ):
+                raise ValueError(
+                    "edge endpoints must exist and belong to the supplied project_id"
+                )
         meta_json = json.dumps(metadata) if metadata is not None else None
         self._conn.execute(
             """
@@ -357,10 +372,13 @@ class Store:
         project_id: "str | None" = None,
         max_depth: int = 2,
         edge_types: "list[str] | None" = None,
+        as_of: "str | None" = None,
     ) -> "list[Atom]":
-        """BFS from atom_id through kg_edges; return reachable atoms (excluding start)."""
+        """BFS from atom_id through KG edges and triples, excluding the start."""
         if max_depth < 1:
             return []
+        if max_depth > MAX_GRAPH_DEPTH:
+            raise ValueError(f"max_depth must not exceed {MAX_GRAPH_DEPTH}")
 
         visited: set[str] = {atom_id}
         frontier = {atom_id}
@@ -371,36 +389,37 @@ class Store:
                 break
             next_frontier: set[str] = set()
             for fid in frontier:
-                rows: list[sqlite3.Row] = []
-                if edge_types:
-                    placeholders = ",".join("?" * len(edge_types))
-                    rows = self._conn.execute(
-                        f"SELECT from_atom_id, to_atom_id FROM kg_edges "
-                        f"WHERE (from_atom_id = ? OR to_atom_id = ?) "
-                        f"AND edge_type IN ({placeholders})",
-                        (fid, fid, *edge_types),
-                    ).fetchall()
-                else:
-                    rows = self._conn.execute(
-                        "SELECT from_atom_id, to_atom_id FROM kg_edges "
-                        "WHERE from_atom_id = ? OR to_atom_id = ?",
-                        (fid, fid),
-                    ).fetchall()
+                rows = self._edge_rows(
+                    fid, project_id=project_id, edge_types=edge_types, as_of=as_of
+                )
                 for r in rows:
                     other = r["to_atom_id"] if r["from_atom_id"] == fid else r["from_atom_id"]
                     if other not in visited:
                         visited.add(other)
                         next_frontier.add(other)
                         all_connected.add(other)
+                if not edge_types:
+                    _, triple_neighbours = self._triple_neighbours(
+                        fid, project_id=project_id, as_of=as_of
+                    )
+                    for other in triple_neighbours:
+                        if other not in visited:
+                            visited.add(other)
+                            next_frontier.add(other)
+                            all_connected.add(other)
             frontier = next_frontier
 
         if not all_connected:
             return []
 
         placeholders = ",".join("?" * len(all_connected))
+        project_filter = " AND project_id = ?" if project_id is not None else ""
+        params = tuple(all_connected)
+        if project_id is not None:
+            params += (project_id,)
         rows = self._conn.execute(
-            f"SELECT * FROM atoms WHERE id IN ({placeholders})",
-            tuple(all_connected),
+            f"SELECT * FROM atoms WHERE id IN ({placeholders}){project_filter} ORDER BY id",
+            params,
         ).fetchall()
         return [_row_to_atom(r) for r in rows]
 
@@ -416,10 +435,12 @@ class Store:
         """Return subgraph {nodes: [Atom dicts], edges: [edge dicts]} from BFS."""
         if max_depth < 1:
             return {"nodes": [], "edges": []}
+        if max_depth > MAX_GRAPH_DEPTH:
+            raise ValueError(f"max_depth must not exceed {MAX_GRAPH_DEPTH}")
 
         visited: set[str] = {atom_id}
         frontier = {atom_id}
-        edge_ids: set[int] = set()
+        edge_ids: set[int | str] = set()
         edges_list: list[dict] = []
         connected_ids: set[str] = set()
 
@@ -428,21 +449,9 @@ class Store:
                 break
             next_frontier: set[str] = set()
             for fid in frontier:
-                rows: list[sqlite3.Row] = []
-                if edge_types:
-                    placeholders = ",".join("?" * len(edge_types))
-                    rows = self._conn.execute(
-                        f"SELECT * FROM kg_edges "
-                        f"WHERE (from_atom_id = ? OR to_atom_id = ?) "
-                        f"AND edge_type IN ({placeholders})",
-                        (fid, fid, *edge_types),
-                    ).fetchall()
-                else:
-                    rows = self._conn.execute(
-                        "SELECT * FROM kg_edges "
-                        "WHERE from_atom_id = ? OR to_atom_id = ?",
-                        (fid, fid),
-                    ).fetchall()
+                rows = self._edge_rows(
+                    fid, project_id=project_id, edge_types=edge_types, as_of=as_of
+                )
                 for r in rows:
                     if r["id"] not in edge_ids:
                         edge_ids.add(r["id"])
@@ -455,20 +464,188 @@ class Store:
                         visited.add(other)
                         next_frontier.add(other)
                         connected_ids.add(other)
+                if not edge_types:
+                    triple_relations, triple_neighbours = self._triple_neighbours(
+                        fid, project_id=project_id, as_of=as_of
+                    )
+                    for relation in triple_relations:
+                        if relation["id"] not in edge_ids:
+                            edge_ids.add(relation["id"])
+                            edges_list.append(relation)
+                    for other in triple_neighbours:
+                        if other not in visited:
+                            visited.add(other)
+                            next_frontier.add(other)
+                            connected_ids.add(other)
             frontier = next_frontier
 
         nodes: list[dict] = []
         if connected_ids or atom_id:
             all_ids = connected_ids | {atom_id}
             placeholders = ",".join("?" * len(all_ids))
+            project_filter = " AND project_id = ?" if project_id is not None else ""
+            params = tuple(all_ids)
+            if project_id is not None:
+                params += (project_id,)
             rows = self._conn.execute(
-                f"SELECT * FROM atoms WHERE id IN ({placeholders})",
-                tuple(all_ids),
+                f"SELECT * FROM atoms WHERE id IN ({placeholders}){project_filter} ORDER BY id",
+                params,
             ).fetchall()
             atoms = [_row_to_atom(r) for r in rows]
             nodes = [_atom_to_dict(a) for a in atoms]
 
-        return {"nodes": nodes, "edges": edges_list}
+        return {
+            "nodes": sorted(nodes, key=lambda node: node["id"]),
+            "edges": sorted(edges_list, key=lambda edge: str(edge["id"])),
+        }
+
+    def _edge_rows(
+        self,
+        atom_id: str,
+        *,
+        project_id: "str | None",
+        edge_types: "list[str] | None",
+        as_of: "str | None",
+    ) -> list[sqlite3.Row]:
+        """Return KG edges incident to *atom_id*, respecting graph time/scope."""
+        clauses = ["(from_atom_id = ? OR to_atom_id = ?)"]
+        params: tuple = (atom_id, atom_id)
+        if edge_types:
+            clauses.append(f"edge_type IN ({','.join('?' * len(edge_types))})")
+            params += tuple(edge_types)
+        if as_of is not None:
+            clauses.append(
+                "COALESCE(CASE WHEN json_valid(metadata) "
+                "THEN json_extract(metadata, '$.valid_from') END, created_at) <= ?"
+            )
+            clauses.append(
+                "(CASE WHEN json_valid(metadata) "
+                "THEN json_extract(metadata, '$.valid_to') END IS NULL "
+                "OR CASE WHEN json_valid(metadata) "
+                "THEN json_extract(metadata, '$.valid_to') END > ?)"
+            )
+            params += (as_of, as_of)
+        if project_id is not None:
+            clauses.append("project_id = ?")
+            params += (project_id,)
+        return self._conn.execute(
+            "SELECT * FROM kg_edges WHERE " + " AND ".join(clauses) + " ORDER BY id", params
+        ).fetchall()
+
+    def _triple_neighbours(
+        self,
+        atom_id: str,
+        *,
+        project_id: "str | None",
+        as_of: "str | None",
+    ) -> tuple[list[dict], set[str]]:
+        """Return provenance-correct triple relations plus reachable atom IDs."""
+        project_filter = " AND project_id = ?" if project_id is not None else ""
+        temporal_filter = ""
+        temporal_params: tuple[str, ...] = ()
+        if as_of is not None:
+            temporal_filter = " AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)"
+            temporal_params = (as_of, as_of)
+
+        direct_params: tuple = (atom_id, atom_id, *temporal_params)
+        if project_id is not None:
+            direct_params += (project_id,)
+        rows = self._conn.execute(
+            "SELECT * FROM kg_triples WHERE (subject = ? OR object = ?)"
+            f"{temporal_filter}{project_filter} ORDER BY id",
+            direct_params,
+        ).fetchall()
+
+        entity_params: tuple = (atom_id, *temporal_params)
+        if project_id is not None:
+            entity_params += (project_id,)
+        entity_rows = self._conn.execute(
+            "SELECT DISTINCT subject FROM kg_triples WHERE object = ?"
+            f"{temporal_filter}{project_filter} ORDER BY subject",
+            entity_params,
+        ).fetchall()
+        subjects = [row["subject"] for row in entity_rows]
+        if subjects:
+            placeholders = ",".join("?" * len(subjects))
+            shared_params: tuple = (*subjects, *temporal_params)
+            if project_id is not None:
+                shared_params += (project_id,)
+            rows += self._conn.execute(
+                f"SELECT * FROM kg_triples WHERE subject IN ({placeholders})"
+                f"{temporal_filter}{project_filter} ORDER BY id",
+                shared_params,
+            ).fetchall()
+
+        unique_rows = list({row["id"]: row for row in rows}.values())
+        candidate_ids: set[str] = set()
+        for row in unique_rows:
+            if row["subject"] == atom_id:
+                candidate_ids.add(row["object"])
+            elif row["object"] == atom_id:
+                candidate_ids.add(row["subject"])
+            elif row["subject"] in subjects:
+                candidate_ids.add(row["object"])
+        candidate_ids.discard(atom_id)
+        if not candidate_ids:
+            return [], set()
+
+        placeholders = ",".join("?" * len(candidate_ids))
+        atom_params: tuple = tuple(candidate_ids)
+        if project_id is not None:
+            atom_params += (project_id,)
+        atoms = self._conn.execute(
+            f"SELECT id FROM atoms WHERE id IN ({placeholders})"
+            f"{' AND project_id = ?' if project_id is not None else ''} ORDER BY id LIMIT ?",
+            atom_params + (MAX_GRAPH_TRIPLE_NEIGHBOURS,),
+        ).fetchall()
+        atom_ids = {row["id"] for row in atoms}
+        relations: list[dict] = []
+        rows_by_subject: dict[str, list[sqlite3.Row]] = {}
+        for row in unique_rows:
+            rows_by_subject.setdefault(row["subject"], []).append(row)
+
+        for source in unique_rows:
+            if source["subject"] == atom_id and source["object"] in atom_ids:
+                relations.append({
+                    "id": f"triple:{source['id']}",
+                    "kind": "triple",
+                    "from_atom_id": atom_id,
+                    "to_atom_id": source["object"],
+                    "metadata": {"predicate": source["predicate"], "triple_id": source["id"]},
+                })
+                continue
+            if source["object"] == atom_id and source["subject"] in atom_ids:
+                relations.append({
+                    "id": f"triple:{source['id']}",
+                    "kind": "triple",
+                    "from_atom_id": atom_id,
+                    "to_atom_id": source["subject"],
+                    "metadata": {"predicate": source["predicate"], "triple_id": source["id"]},
+                })
+                continue
+            if source["object"] != atom_id:
+                continue
+            for target in rows_by_subject.get(source["subject"], []):
+                other = target["object"]
+                if other == atom_id or other not in atom_ids:
+                    continue
+                relations.append({
+                    "id": f"triple:{source['id']}:{target['id']}",
+                    "kind": "triple",
+                    "from_atom_id": atom_id,
+                    "to_atom_id": other,
+                    "metadata": {
+                        "subject": source["subject"],
+                        "predicate": source["predicate"],
+                        "source_triple_id": source["id"],
+                        "target_triple_id": target["id"],
+                        "source_ref": source["source_ref"],
+                        "valid_from": source["valid_from"],
+                        "valid_to": source["valid_to"],
+                        "confidence": source["confidence"],
+                    },
+                })
+        return relations, atom_ids
 
 
 def _atom_to_dict(atom: "Atom") -> dict:
